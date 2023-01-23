@@ -1,0 +1,2 @@
+add_executable(ex_safe_file_descriptor ex_safe_file_descriptor.cpp)
+target_link_libraries(ex_safe_file_descriptor glib-senders::glib-senders)
