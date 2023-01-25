@@ -21,7 +21,7 @@ struct wait_for_t {
   template <class S, typename Duration>
   requires stdexec::scheduler<S> && tag_invocable<wait_for_t, S, Duration> &&
            stdexec::sender<tag_invoke_result_t<wait_for_t, S, Duration>>
-  [[nodiscard]] auto operator()(S&& scheduler, Duration duration) noexcept(
+  [[nodiscard]] auto operator()(S&& scheduler, Duration duration) const noexcept(
       nothrow_tag_invocable<wait_for_t, S, Duration>) {
     return tag_invoke(wait_for_t{}, std::forward<S>(scheduler), duration);
   }
@@ -32,7 +32,7 @@ struct wait_until_t {
   template <class S, typename... Args>
   requires stdexec::scheduler<S> && tag_invocable<wait_until_t, S, Args...> &&
            stdexec::sender<tag_invoke_result_t<wait_until_t, S, Args...>>
-  [[nodiscard]] auto operator()(S&& scheduler, Args&&... args) noexcept(
+  [[nodiscard]] auto operator()(S&& scheduler, Args&&... args) const noexcept(
       stdexec::nothrow_tag_invocable<wait_until_t, S, Args...>) {
     return tag_invoke(wait_until_t{}, std::forward<S>(scheduler),
                       std::forward<Args>(args)...);
@@ -51,7 +51,12 @@ auto operator|(when, when) noexcept -> when;
 auto operator&(when, when) noexcept -> bool;
 
 class glib_scheduler {
+public:
+  explicit glib_scheduler(glib_io_context& ctx) : context_{&ctx} {}
+
+private:
   friend class schedule_sender;
+  friend class wait_until_sender;
 
   auto get_GMainContext() const noexcept -> ::GMainContext*;
 
@@ -124,6 +129,7 @@ private:
         if (callback) {
           return callback(data);
         }
+        return G_SOURCE_REMOVE;
       }, // dispatch
       [](::GSource* source) {
         auto* self = static_cast<Source*>(source);
@@ -193,21 +199,12 @@ private:
                                         is_nothrow_constructible_v<
                                             std::remove_cvref_t<R>, R>)
       -> schedule_operation<std::remove_cvref_t<R>> {
-    return {self.scheduler_.context_->context_.get(),
-            std::forward<R>(receiver)};
+    return {self.get_GMainContext(), std::forward<R>(receiver)};
   }
 
   friend attrs tag_invoke(stdexec::get_attrs_t,
                           const schedule_sender& self) noexcept {
     return attrs{self.scheduler_};
-  }
-
-  friend void tag_invoke(stdexec::start_detached_t, const schedule_sender& self,
-                         stdexec::__empty_env) noexcept {
-    schedule_operation op{self.get_GMainContext(),
-                          stdexec::__start_detached::__detached_receiver_t<
-                              stdexec::__empty_env>{}};
-    stdexec::start(op);
   }
 };
 
@@ -216,19 +213,24 @@ static_assert(stdexec::scheduler<glib_scheduler>);
 
 template <typename Receiver>
 requires stdexec::receiver<Receiver>
-struct glib_io_context::async_timeout_operation {
+struct wait_for_operation {
   ::GMainContext* context_{nullptr};
   std::chrono::milliseconds timeout_{};
   Receiver receiver_{};
 
-  friend auto tag_invoke(stdexec::start_t, async_timeout_operation& op) noexcept
+  friend auto tag_invoke(stdexec::start_t, wait_for_operation& op) noexcept
       -> void {
     GSource* source = ::g_timeout_source_new(op.timeout_.count());
     ::g_source_set_callback(
         source,
         [](gpointer data) -> gboolean {
-          auto* op = static_cast<async_timeout_operation*>(data);
-          stdexec::set_value((Receiver &&) op->receiver_);
+          auto* op = static_cast<wait_for_operation*>(data);
+          try {
+            stdexec::set_value((Receiver &&) op->receiver_);
+          } catch (...) {
+            stdexec::set_error((Receiver &&) op->receiver_,
+                               std::current_exception());
+          }
           return G_SOURCE_REMOVE;
         },
         &op, nullptr);
@@ -237,7 +239,7 @@ struct glib_io_context::async_timeout_operation {
   }
 };
 
-struct glib_io_context::async_timeout_sender {
+struct wait_for_sender {
   using completion_signatures =
       stdexec::completion_signatures<stdexec::set_value_t(),
                                      stdexec::set_error_t(std::exception_ptr),
@@ -248,20 +250,17 @@ struct glib_io_context::async_timeout_sender {
 
   template <typename Receiver>
   requires stdexec::receiver<Receiver>
-  friend auto tag_invoke(stdexec::connect_t,
-                         glib_io_context::async_timeout_sender& sender,
+  friend auto tag_invoke(stdexec::connect_t, wait_for_sender self,
                          Receiver&& receiver)
-      -> glib_io_context::async_timeout_operation<Receiver> {
-    using ReceiverType = std::remove_cvref_t<Receiver>;
-    return async_timeout_operation<ReceiverType>{
-        sender.context_, sender.timeout_, std::forward<Receiver>(receiver)};
+      -> wait_for_operation<std::remove_cvref_t<Receiver>> {
+    return {self.context_, self.timeout_, std::forward<Receiver>(receiver)};
   }
 };
 
-template <typename Receiver> struct glib_io_context::async_read_operation {
+template <typename Receiver> struct wait_until_operation {
   ::GMainContext* context_{nullptr};
   int fd_{};
-  std::span<char> buffer_{};
+  when condition_{};
   Receiver receiver_{};
   inline static GSourceFuncs vtable_{
       nullptr, // prepare
@@ -272,25 +271,29 @@ template <typename Receiver> struct glib_io_context::async_read_operation {
       nullptr, // finalize
   };
 
-  friend auto tag_invoke(stdexec::start_t, async_read_operation& op) noexcept
+  ::GIOCondition get_g_io_condition() {
+    ::GIOCondition g_condition{};
+    if (condition_ & when::readable) {
+      g_condition = (GIOCondition)(G_IO_IN | G_IO_ERR | G_IO_HUP);
+    } else if (condition_ & when::writable) {
+      g_condition = (GIOCondition)(G_IO_OUT);
+    }
+    return g_condition;
+  }
+
+  friend auto tag_invoke(stdexec::start_t, wait_until_operation& op) noexcept
       -> void {
     GSource* source = ::g_source_new(&vtable_, sizeof(GSource));
-    ::g_source_add_unix_fd(source, op.fd_,
-                           (GIOCondition)(G_IO_IN | G_IO_ERR | G_IO_HUP));
+    ::g_source_add_unix_fd(source, op.fd_, op.get_g_io_condition());
     ::g_source_set_callback(
         source,
         [](gpointer data) -> gboolean {
-          auto* op = static_cast<async_read_operation*>(data);
-          errno = 0;
-          ssize_t bytes_read =
-              ::read(op->fd_, op->buffer_.data(), op->buffer_.size_bytes());
-          std::error_code ec(errno, std::system_category());
-          if (bytes_read < 0) {
+          auto* op = static_cast<wait_until_operation*>(data);
+          try {
+            stdexec::set_value((Receiver &&) op->receiver_, op->fd_);
+          } catch (...) {
             stdexec::set_error((Receiver &&) op->receiver_,
-                               std::make_exception_ptr(std::system_error(ec)));
-          } else {
-            stdexec::set_value((Receiver &&) op->receiver_, ec,
-                               static_cast<std::size_t>(bytes_read));
+                               std::current_exception());
           }
           return G_SOURCE_REMOVE;
         },
@@ -300,24 +303,40 @@ template <typename Receiver> struct glib_io_context::async_read_operation {
   }
 };
 
-struct glib_io_context::async_read_sender {
-  using completion_signatures = stdexec::completion_signatures<
-      stdexec::set_value_t(std::error_code, std::size_t),
-      stdexec::set_error_t(std::exception_ptr), stdexec::set_stopped_t()>;
-
-  ::GMainContext* context_{nullptr};
+struct wait_until_sender {
+  using completion_signatures =
+      stdexec::completion_signatures<stdexec::set_value_t(int),
+                                     stdexec::set_error_t(std::exception_ptr),
+                                     stdexec::set_stopped_t()>;
+  glib_scheduler scheduler_;
   int fd_{};
-  std::span<char> buffer_{};
+  when condition_;
+
+  auto get_GMainContext() const noexcept -> ::GMainContext* {
+    return scheduler_.get_GMainContext();
+  }
 
   template <typename Receiver>
   requires stdexec::receiver<Receiver>
-  friend auto tag_invoke(stdexec::connect_t,
-                         glib_io_context::async_read_sender& sender,
-                         Receiver&& receiver) {
-    using ReceiverType = std::remove_cvref_t<Receiver>;
-    return async_read_operation<ReceiverType>{sender.context_, sender.fd_,
-                                              sender.buffer_,
-                                              std::forward<Receiver>(receiver)};
+  friend auto tag_invoke(stdexec::connect_t, wait_until_sender self,
+                         Receiver&& receiver)
+      -> wait_until_operation<std::remove_cvref_t<Receiver>> {
+    return {self.get_GMainContext(), self.fd_, self.condition_,
+            std::forward<Receiver>(receiver)};
+  }
+
+  struct attrs {
+    glib_scheduler scheduler_;
+    friend glib_scheduler
+    tag_invoke(stdexec::get_completion_scheduler_t<stdexec::set_value_t>,
+               const attrs& self) noexcept {
+      return self.scheduler_;
+    }
+  };
+
+  friend attrs tag_invoke(stdexec::get_attrs_t,
+                          const wait_until_sender& self) noexcept {
+    return attrs{self.scheduler_};
   }
 };
 

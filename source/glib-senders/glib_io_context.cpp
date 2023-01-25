@@ -4,6 +4,36 @@
 
 namespace gsenders {
 
+auto operator|(when c1, when c2) noexcept -> when {
+  return static_cast<when>(static_cast<int>(c1) | static_cast<int>(c2));
+}
+auto operator&(when c1, when c2) noexcept -> bool {
+  return bool(static_cast<int>(c1) & static_cast<int>(c2));
+}
+
+auto glib_scheduler::get_GMainContext() const noexcept -> ::GMainContext* {
+  return context_->context_.get();
+}
+
+auto tag_invoke(stdexec::schedule_t, glib_scheduler self) noexcept
+    -> schedule_sender {
+  return schedule_sender{self};
+}
+
+auto tag_invoke(wait_for_t, glib_scheduler self,
+                std::chrono::milliseconds dur) noexcept -> wait_for_sender {
+  return wait_for_sender{self.get_GMainContext(), dur};
+}
+
+auto tag_invoke(wait_until_t, glib_scheduler self, int fd,
+                when condition) noexcept -> wait_until_sender {
+  return wait_until_sender{self, fd, condition};
+}
+
+auto glib_io_context::get_scheduler() noexcept -> glib_scheduler {
+  return glib_scheduler{*this};
+}
+
 void glib_io_context::context_destroy::operator()(
     ::GMainContext* pointer) const noexcept {
   g_main_context_unref(pointer);

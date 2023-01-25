@@ -24,6 +24,7 @@ target_include_directories(glib-senders
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/source>
     $<INSTALL_INTERFACE:include>)
 target_sources(glib-senders PRIVATE
+  source/glib-senders/async_io_stream.cpp
   source/glib-senders/atomic_intrusive_queue.cpp
   source/glib-senders/intrusive_queue.cpp
   source/glib-senders/safe_file_descriptor.cpp
@@ -34,6 +35,7 @@ target_sources(glib-senders PUBLIC
   BASE_DIRS source
   FILES
     source/glib-senders.hpp
+    source/glib-senders/async_io_stream.hpp
     source/glib-senders/atomic_intrusive_queue.hpp
     source/glib-senders/intrusive_queue.hpp
     source/glib-senders/safe_file_descriptor.hpp

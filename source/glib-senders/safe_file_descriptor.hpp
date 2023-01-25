@@ -54,7 +54,7 @@ public:
   auto close() noexcept -> std::error_code;
 
   /// @brief Check if the file descriptor is valid.
-  operator bool() const noexcept;
+  explicit operator bool() const noexcept;
 
 private:
   int fd_{-1};
