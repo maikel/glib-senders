@@ -46,9 +46,9 @@ struct schedule_sender;
 struct wait_for_sender;
 struct wait_until_sender;
 
-enum class when { readable = 1, writable = 2, error = 4 };
-auto operator|(when, when) noexcept -> when;
-auto operator&(when, when) noexcept -> bool;
+enum class io_condition { is_readable = 1, is_writable = 2, is_error = 4 };
+auto operator|(io_condition, io_condition) noexcept -> io_condition;
+auto operator&(io_condition, io_condition) noexcept -> bool;
 
 class glib_scheduler {
 public:
@@ -68,7 +68,7 @@ private:
       -> wait_for_sender;
 
   friend auto tag_invoke(wait_until_t, glib_scheduler self, int fd,
-                         when condition) noexcept -> wait_until_sender;
+                         io_condition condition) noexcept -> wait_until_sender;
 
   friend bool operator==(const glib_scheduler&,
                          const glib_scheduler&) = default;
@@ -118,7 +118,7 @@ private:
   };
 
   inline static ::GSourceFuncs vtable_{
-      [](::GSource* self, int* timeout) -> gboolean {
+      [](::GSource*, int* timeout) -> gboolean {
         if (timeout) {
           *timeout = -1;
         }
@@ -134,7 +134,8 @@ private:
       [](::GSource* source) {
         auto* self = static_cast<Source*>(source);
         self->receiver_.~Receiver();
-      } // finalize
+      }, // finalize
+      nullptr, nullptr
   };
 
   Source* source_;
@@ -208,9 +209,6 @@ private:
   }
 };
 
-static_assert(stdexec::sender<schedule_sender>);
-static_assert(stdexec::scheduler<glib_scheduler>);
-
 template <typename Receiver>
 requires stdexec::receiver<Receiver>
 struct wait_for_operation {
@@ -260,7 +258,7 @@ struct wait_for_sender {
 template <typename Receiver> struct wait_until_operation {
   ::GMainContext* context_{nullptr};
   int fd_{};
-  when condition_{};
+  io_condition condition_{};
   Receiver receiver_{};
   inline static GSourceFuncs vtable_{
       nullptr, // prepare
@@ -269,13 +267,14 @@ template <typename Receiver> struct wait_until_operation {
         return callback(data);
       },       // dispatch
       nullptr, // finalize
+      nullptr, nullptr
   };
 
   ::GIOCondition get_g_io_condition() {
     ::GIOCondition g_condition{};
-    if (condition_ & when::readable) {
+    if (condition_ & io_condition::is_readable) {
       g_condition = (GIOCondition)(G_IO_IN | G_IO_ERR | G_IO_HUP);
-    } else if (condition_ & when::writable) {
+    } else if (condition_ & io_condition::is_writable) {
       g_condition = (GIOCondition)(G_IO_OUT);
     }
     return g_condition;
@@ -310,7 +309,7 @@ struct wait_until_sender {
                                      stdexec::set_stopped_t()>;
   glib_scheduler scheduler_;
   int fd_{};
-  when condition_;
+  io_condition condition_;
 
   auto get_GMainContext() const noexcept -> ::GMainContext* {
     return scheduler_.get_GMainContext();

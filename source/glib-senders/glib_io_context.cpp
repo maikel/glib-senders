@@ -4,10 +4,10 @@
 
 namespace gsenders {
 
-auto operator|(when c1, when c2) noexcept -> when {
-  return static_cast<when>(static_cast<int>(c1) | static_cast<int>(c2));
+auto operator|(io_condition c1, io_condition c2) noexcept -> io_condition {
+  return static_cast<io_condition>(static_cast<int>(c1) | static_cast<int>(c2));
 }
-auto operator&(when c1, when c2) noexcept -> bool {
+auto operator&(io_condition c1, io_condition c2) noexcept -> bool {
   return bool(static_cast<int>(c1) & static_cast<int>(c2));
 }
 
@@ -26,7 +26,7 @@ auto tag_invoke(wait_for_t, glib_scheduler self,
 }
 
 auto tag_invoke(wait_until_t, glib_scheduler self, int fd,
-                when condition) noexcept -> wait_until_sender {
+                io_condition condition) noexcept -> wait_until_sender {
   return wait_until_sender{self, fd, condition};
 }
 

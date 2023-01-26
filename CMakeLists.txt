@@ -27,6 +27,7 @@ target_sources(glib-senders PRIVATE
   source/glib-senders/async_io_stream.cpp
   source/glib-senders/atomic_intrusive_queue.cpp
   source/glib-senders/intrusive_queue.cpp
+  source/glib-senders/repeat_until.cpp
   source/glib-senders/safe_file_descriptor.cpp
   source/glib-senders/glib_io_context.cpp)
 target_sources(glib-senders PUBLIC
@@ -38,6 +39,7 @@ target_sources(glib-senders PUBLIC
     source/glib-senders/async_io_stream.hpp
     source/glib-senders/atomic_intrusive_queue.hpp
     source/glib-senders/intrusive_queue.hpp
+    source/glib-senders/repeat_until.hpp
     source/glib-senders/safe_file_descriptor.hpp
     source/glib-senders/glib_io_context.hpp)
 target_link_libraries(glib-senders PUBLIC
