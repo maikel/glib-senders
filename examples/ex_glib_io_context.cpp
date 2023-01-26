@@ -31,7 +31,24 @@ int main() {
   auto add_one = schedule | stdexec::then([&i] { i += 1; });
 
   auto wait_a_second =
-      gsenders::wait_for(scheduler, std::chrono::milliseconds(1000));
+      gsenders::wait_for(scheduler, std::chrono::seconds(1));
+
+  auto wait_two_seconds =
+      gsenders::wait_for(scheduler, std::chrono::seconds(2));
+
+  auto and_just_stop =
+      stdexec::let_value([] { return stdexec::just_stopped(); });
+
+  stdexec::start_detached(
+      stdexec::when_all(
+          wait_a_second                                        //
+              | stdexec::then([] { std::cout << "Hello!\n"; }) //
+              | and_just_stop,
+          wait_two_seconds                                             //
+              | stdexec::upon_stopped([] { std::cout << "Stop!\n"; })) //
+      | stdexec::upon_stopped([&] { io_context.stop(); }));
+
+  io_context.run();
 
   auto say_hello = wait_a_second |
                    stdexec::then([] { std::cout << "Hello!\n"; }) |

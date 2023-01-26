@@ -6,8 +6,8 @@
 #include <memory>
 #include <span>
 
-#include <exec/inline_scheduler.hpp>
 #include <stdexec/execution.hpp>
+#include <stdexec/stop_token.hpp>
 
 #include "glib.h"
 
@@ -21,8 +21,8 @@ struct wait_for_t {
   template <class S, typename Duration>
   requires stdexec::scheduler<S> && tag_invocable<wait_for_t, S, Duration> &&
            stdexec::sender<tag_invoke_result_t<wait_for_t, S, Duration>>
-  [[nodiscard]] auto operator()(S&& scheduler, Duration duration) const noexcept(
-      nothrow_tag_invocable<wait_for_t, S, Duration>) {
+  [[nodiscard]] auto operator()(S&& scheduler, Duration duration) const
+      noexcept(nothrow_tag_invocable<wait_for_t, S, Duration>) {
     return tag_invoke(wait_for_t{}, std::forward<S>(scheduler), duration);
   }
 };
@@ -32,8 +32,8 @@ struct wait_until_t {
   template <class S, typename... Args>
   requires stdexec::scheduler<S> && tag_invocable<wait_until_t, S, Args...> &&
            stdexec::sender<tag_invoke_result_t<wait_until_t, S, Args...>>
-  [[nodiscard]] auto operator()(S&& scheduler, Args&&... args) const noexcept(
-      stdexec::nothrow_tag_invocable<wait_until_t, S, Args...>) {
+  [[nodiscard]] auto operator()(S&& scheduler, Args&&... args) const
+      noexcept(stdexec::nothrow_tag_invocable<wait_until_t, S, Args...>) {
     return tag_invoke(wait_until_t{}, std::forward<S>(scheduler),
                       std::forward<Args>(args)...);
   }
@@ -95,7 +95,6 @@ public:
 
 private:
   friend class glib_scheduler;
-
   struct context_destroy {
     void operator()(::GMainContext* pointer) const noexcept;
   };
@@ -112,11 +111,6 @@ private:
 
 template <typename Receiver> class schedule_operation {
 private:
-  struct Source : ::GSource {
-    Receiver receiver_;
-    ::GMainContext* context_;
-  };
-
   inline static ::GSourceFuncs vtable_{
       [](::GSource*, int* timeout) -> gboolean {
         if (timeout) {
@@ -130,42 +124,59 @@ private:
           return callback(data);
         }
         return G_SOURCE_REMOVE;
-      }, // dispatch
-      [](::GSource* source) {
-        auto* self = static_cast<Source*>(source);
-        self->receiver_.~Receiver();
-      }, // finalize
-      nullptr, nullptr
-  };
+      },       // dispatch
+      nullptr, // finalize
+      nullptr,
+      nullptr};
 
-  Source* source_;
+  [[no_unique_address]] Receiver receiver_;
+  ::GMainContext* context_;
+
+  struct on_stop_requested {
+    stdexec::in_place_stop_source& stop_source_;
+    ::GMainContext* context_;
+    void operator()() noexcept {
+      stop_source_.request_stop();
+      ::g_main_context_wakeup(context_);
+    }
+  };
+  stdexec::in_place_stop_source stop_source_{};
+  using on_stop = std::optional<typename stdexec::stop_token_of_t<
+      stdexec::env_of_t<Receiver>&>::template callback_type<on_stop_requested>>;
+  on_stop on_stop_{};
 
   friend auto tag_invoke(stdexec::start_t, schedule_operation& self) noexcept
       -> void {
+    self.on_stop_.emplace(
+        stdexec::get_stop_token(stdexec::get_env(self.receiver_)),
+        on_stop_requested{self.stop_source_, self.context_});
+    ::GSource* source = ::g_source_new(&vtable_, sizeof(::GSource));
     ::g_source_set_callback(
-        self.source_,
+        source,
         [](gpointer data) -> gboolean {
-          auto* self = static_cast<Source*>(data);
+          auto& self = *static_cast<schedule_operation*>(data);
           try {
-            stdexec::set_value(std::move(self->receiver_));
+            self.on_stop_.reset();
+            if (self.stop_source_.stop_requested()) {
+              stdexec::set_stopped(std::move(self.receiver_));
+            } else {
+              stdexec::set_value(std::move(self.receiver_));
+            }
           } catch (...) {
-            stdexec::set_error(std::move(self->receiver_),
+            stdexec::set_error(std::move(self.receiver_),
                                std::current_exception());
           }
           return G_SOURCE_REMOVE;
         },
-        self.source_, nullptr);
-    ::g_source_attach(self.source_, self.source_->context_);
-    ::g_source_unref(std::exchange(self.source_, nullptr));
+        &self, nullptr);
+    ::g_source_attach(source, self.context_);
+    ::g_source_unref(source);
   }
 
 public:
-  schedule_operation(::GMainContext* context, Receiver&& receiver) {
-    source_ =
-        reinterpret_cast<Source*>(::g_source_new(&vtable_, sizeof(Source)));
-    new (&source_->receiver_) Receiver{std::move(receiver)};
-    source_->context_ = context;
-  }
+  schedule_operation(::GMainContext* context, Receiver&& receiver)
+      : receiver_{std::move(receiver)}, context_{context} {}
+  schedule_operation(schedule_operation&&) = delete;
 };
 
 class schedule_sender {
@@ -212,21 +223,44 @@ private:
 template <typename Receiver>
 requires stdexec::receiver<Receiver>
 struct wait_for_operation {
+  [[no_unique_address]] Receiver receiver_{};
   ::GMainContext* context_{nullptr};
   std::chrono::milliseconds timeout_{};
-  Receiver receiver_{};
+
+  struct on_stop_requested {
+    stdexec::in_place_stop_source& stop_source_;
+    ::GMainContext* context_;
+    GSource* source_;
+    void operator()() noexcept {
+      stop_source_.request_stop();
+      ::g_source_set_ready_time(source_, 0);
+      ::g_main_context_wakeup(context_);
+    }
+  };
+  stdexec::in_place_stop_source stop_source_{};
+  using on_stop = std::optional<typename stdexec::stop_token_of_t<
+      stdexec::env_of_t<Receiver>&>::template callback_type<on_stop_requested>>;
+  on_stop on_stop_{};
 
   friend auto tag_invoke(stdexec::start_t, wait_for_operation& op) noexcept
       -> void {
-    GSource* source = ::g_timeout_source_new(op.timeout_.count());
+    ::GSource* source = ::g_timeout_source_new(op.timeout_.count());
+    op.on_stop_.emplace(
+        stdexec::get_stop_token(stdexec::get_env(op.receiver_)),
+        on_stop_requested{op.stop_source_, op.context_, source});
     ::g_source_set_callback(
         source,
         [](gpointer data) -> gboolean {
-          auto* op = static_cast<wait_for_operation*>(data);
+          auto& self = *static_cast<wait_for_operation*>(data);
           try {
-            stdexec::set_value((Receiver &&) op->receiver_);
+            self.on_stop_.reset();
+            if (self.stop_source_.stop_requested()) {
+              stdexec::set_stopped(std::move(self.receiver_));
+            } else {
+              stdexec::set_value(std::move(self.receiver_));
+            }
           } catch (...) {
-            stdexec::set_error((Receiver &&) op->receiver_,
+            stdexec::set_error(std::move(self.receiver_),
                                std::current_exception());
           }
           return G_SOURCE_REMOVE;
@@ -251,7 +285,7 @@ struct wait_for_sender {
   friend auto tag_invoke(stdexec::connect_t, wait_for_sender self,
                          Receiver&& receiver)
       -> wait_for_operation<std::remove_cvref_t<Receiver>> {
-    return {self.context_, self.timeout_, std::forward<Receiver>(receiver)};
+    return {std::forward<Receiver>(receiver), self.context_, self.timeout_};
   }
 };
 
@@ -264,18 +298,23 @@ template <typename Receiver> struct wait_until_operation {
       nullptr, // prepare
       nullptr, // check
       [](::GSource*, ::GSourceFunc callback, gpointer data) -> gboolean {
-        return callback(data);
+        if (callback) {
+          return callback(data);
+        }
+        return G_SOURCE_REMOVE;
       },       // dispatch
       nullptr, // finalize
-      nullptr, nullptr
-  };
+      nullptr,
+      nullptr};
 
   ::GIOCondition get_g_io_condition() {
     ::GIOCondition g_condition{};
     if (condition_ & io_condition::is_readable) {
-      g_condition = (GIOCondition)(G_IO_IN | G_IO_ERR | G_IO_HUP);
-    } else if (condition_ & io_condition::is_writable) {
-      g_condition = (GIOCondition)(G_IO_OUT);
+      g_condition = (GIOCondition)(g_condition | G_IO_IN | G_IO_ERR | G_IO_HUP);
+    }
+    if (condition_ & io_condition::is_writable) {
+      g_condition =
+          (GIOCondition)(g_condition | G_IO_OUT | G_IO_ERR | G_IO_HUP);
     }
     return g_condition;
   }
