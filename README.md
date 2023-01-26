@@ -11,16 +11,16 @@ The library requires C++20.
 Example
 
 ```cpp
-template <stdexec::sender_of<file_descriptor> S>
+template <sender_of<file_descriptor> S>
 exec::task<void> echo(S get_fd) {
   file_descriptor fd = co_await std::move(get_fd);
   char buffer[1024];
   int n = 0;
   while (n < 10) {
     std::span<char> input = co_await async_read_some(fd, buffer);
+    n += input.size();
     std::string_view sv(input.data(), input.size());
     std::cout << n << ": " << sv;
-    n += input.size();
   }
 }
 
