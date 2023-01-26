@@ -1,4 +1,4 @@
-#include "glib-senders/safe_file_descriptor.hpp"
+#include "glib-senders/file_descriptor.hpp"
 
 #include <stdexcept>
 

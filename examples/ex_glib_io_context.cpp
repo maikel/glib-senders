@@ -1,14 +1,6 @@
 #include "glib-senders/glib_io_context.hpp"
 #include "glib-senders/repeat_until.hpp"
 #include <iostream>
-// #include <typeinfo>
-// #include <coroutine>
-// #include "exec/task.hpp"
-
-// auto co_main(gsenders::glib_scheduler scheduler) -> exec::task<void> {
-//   co_await stdexec::schedule(scheduler);
-//   co_return;
-// }
 
 template <typename Scheduler> struct basic_file_descriptor {
   Scheduler scheduler_;
