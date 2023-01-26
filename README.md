@@ -1,4 +1,4 @@
-Senders and Receiver for the GNOME Glib library 
+Senders and Receivers for the GNOME Glib library 
 ===============================================
 
 This is a small C++ library that glues together the Glib event loop and the current executor proposal for C++.
