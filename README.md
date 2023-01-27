@@ -1,3 +1,5 @@
+![CMake Status](https://github.com/maikel/glib-senders/actions/workflows/cmake.yml/badge.svg)
+
 Senders and Receivers for the GNOME Glib library 
 ===============================================
 
