@@ -20,13 +20,6 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    - name: Install stdexec
-      run:
-        - git clone https://github.com/NVIDIA/stdexec.git /stdexec
-        - cmake -S /stdexec -B /stdexec-build
-        - cmake --build /stdexec-build
-        - cmake --install /stdexec-build
-
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
       # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
