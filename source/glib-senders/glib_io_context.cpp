@@ -55,6 +55,17 @@ glib_io_context::glib_io_context() {
   }
 }
 
+glib_io_context::glib_io_context(::GMainContext* other) {
+  context_.reset(::g_main_context_ref(other));
+  if (!context_) {
+    throw std::runtime_error("Do not pass nullptr");
+  }
+  loop_.reset(g_main_loop_new(context_.get(), false));
+  if (!loop_) {
+    throw std::runtime_error("g_main_loop_new failed");
+  }
+}
+
 auto glib_io_context::run() -> void { g_main_loop_run(loop_.get()); }
 
 auto glib_io_context::stop() -> void { g_main_loop_quit(loop_.get()); }

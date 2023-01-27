@@ -46,7 +46,7 @@ struct schedule_sender;
 struct wait_for_sender;
 struct wait_until_sender;
 
-enum class io_condition { is_readable = 1, is_writable = 2, is_error = 4 };
+enum class io_condition { is_readable = 1, is_writeable = 2, is_error = 4 };
 auto operator|(io_condition, io_condition) noexcept -> io_condition;
 auto operator&(io_condition, io_condition) noexcept -> bool;
 
@@ -338,7 +338,7 @@ template <typename Receiver> struct wait_until_operation {
     if (condition_ & io_condition::is_readable) {
       g_condition = (GIOCondition)(g_condition | G_IO_IN | G_IO_ERR | G_IO_HUP);
     }
-    if (condition_ & io_condition::is_writable) {
+    if (condition_ & io_condition::is_writeable) {
       g_condition =
           (GIOCondition)(g_condition | G_IO_OUT | G_IO_ERR | G_IO_HUP);
     }

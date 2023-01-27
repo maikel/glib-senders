@@ -11,7 +11,7 @@ template <typename Scheduler> struct basic_file_descriptor {
 };
 
 int main() {
-  glib_io_context io_context{};
+  glib_io_context io_context{::g_main_context_default()};
   glib_scheduler scheduler = io_context.get_scheduler();
 
   int i = 0;
@@ -68,15 +68,15 @@ int main() {
                              | stdexec::then([&n] { return n > 10; });
 
   auto read_input = repeat_until(n_is_bigger_than_10) |
-                    stdexec::then([] { std::cout << "You win.\n"; }) |
-                    and_just_stop;
+                    stdexec::then([] { std::cout << "You win.\n"; });// |
+                    // and_just_stop;
   auto timeout = wait_for(scheduler, 10s) |
-                 stdexec::then([] { std::cout << "You lose.\n"; }) |
-                 and_just_stop;
+                 stdexec::then([] { std::cout << "You lose.\n"; });// |
+                //  and_just_stop;
 
-  auto timed_read = stdexec::when_all(read_input, timeout) //
-                    | stdexec::upon_stopped([] {})         //
-                    | then_stop;
+  auto timed_read = stdexec::when_all(stdexec::when_all(read_input, timeout) //
+                    // | stdexec::upon_stopped([] {})         //
+                    | then_stop, stdexec::just_stopped());
 
   stdexec::start_detached(timed_read);
 

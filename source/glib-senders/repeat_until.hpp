@@ -26,7 +26,7 @@ struct repeat_receiver : stdexec::receiver_adaptor<repeat_receiver<Sender, Recei
   explicit repeat_receiver(repeat_operation<Sender, Receiver>& op) noexcept
       : op_{&op} {}
 
-  Receiver&& base() && noexcept { return (Receiver&&)op_->receiver_; }
+  Receiver&& base() && noexcept { return std::move(op_->receiver_); }
 
   const Receiver& base() const& noexcept { return op_->receiver_; }
 

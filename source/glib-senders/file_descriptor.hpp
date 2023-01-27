@@ -11,6 +11,45 @@
 
 namespace gsenders {
 
+struct async_write_some_t {
+  template <class Object>
+  requires stdexec::tag_invocable<async_write_some_t, Object, std::span<const char>>
+  auto operator()(Object&& io, std::span<const char> buffer) const
+      noexcept(stdexec::nothrow_tag_invocable<async_write_some_t, Object,
+                                              std::span<char>>) {
+    return tag_invoke(async_write_some_t{}, std::forward<Object>(io), buffer);
+  }
+
+  template <class S>
+  requires stdexec::sender<S>
+  auto operator()(S&& sender, std::span<const char> buffer) const noexcept(
+      stdexec::nothrow_tag_invocable<async_write_some_t, S, std::span<char>>) {
+    return stdexec::let_value(
+        std::forward<S>(sender), [buffer]<class T>(T&& io) {
+          return tag_invoke(async_write_some_t{}, std::forward<T>(io), buffer);
+        });
+  }
+
+  template <class S>
+  requires stdexec::sender<S>
+  auto operator()(S&& sender) const noexcept(
+      stdexec::nothrow_tag_invocable<async_write_some_t, S, std::span<const char>>) {
+    return stdexec::let_value(
+        std::forward<S>(sender), []<class T>(T&& io, std::span<char> buffer) {
+          return tag_invoke(async_write_some_t{}, std::forward<T>(io), buffer);
+        });
+  }
+
+  auto operator()() const noexcept {
+    return stdexec::__binder_back<async_write_some_t>{{}, {}, {}};
+  }
+
+  auto operator()(std::span<char> buffer) const noexcept {
+    return stdexec::__binder_back<async_write_some_t, std::span<char>>{
+        {}, {}, {buffer}};
+  }
+};
+
 struct async_read_some_t {
   template <class Object>
   requires stdexec::tag_invocable<async_read_some_t, Object, std::span<char>>
@@ -50,10 +89,11 @@ struct async_read_some_t {
   }
 };
 inline constexpr async_read_some_t async_read_some;
+inline constexpr async_write_some_t async_write_some;
 
 template <class Scheduler> class basic_file_descriptor {
 private:
-  Scheduler scheduler_;
+  [[no_unique_address]] Scheduler scheduler_;
   int fd_;
 
 public:
@@ -77,6 +117,18 @@ public:
                throw std::system_error(errno, std::system_category());
              }
              return buffer.subspan(0, nbytes);
+           });
+  }
+
+    friend auto tag_invoke(async_write_some_t, basic_file_descriptor fd,
+                           std::span<const char> buffer) {
+    return wait_until(fd.scheduler_, fd.fd_, io_condition::is_writeable) |
+           stdexec::then([buffer](int fd) {
+             ssize_t nbytes = ::write(fd, buffer.data(), buffer.size());
+             if (nbytes == -1) {
+               throw std::system_error(errno, std::system_category());
+             }
+             return buffer.subspan(nbytes);
            });
   }
 };
