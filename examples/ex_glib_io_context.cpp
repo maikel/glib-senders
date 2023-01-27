@@ -1,40 +1,29 @@
+#include "glib-senders/file_descriptor.hpp"
 #include "glib-senders/glib_io_context.hpp"
 #include "glib-senders/repeat_until.hpp"
 #include <iostream>
+
+using namespace gsenders;
 
 template <typename Scheduler> struct basic_file_descriptor {
   Scheduler scheduler_;
   int fd_;
 };
 
-using file_descriptor = basic_file_descriptor<gsenders::glib_scheduler>;
-
-auto async_read(file_descriptor fd, std::span<char> buffer) {
-  return gsenders::wait_until(fd.scheduler_, fd.fd_,
-                              gsenders::io_condition::is_readable) |
-         stdexec::then([buffer](int fd) {
-           ssize_t nbytes = ::read(fd, buffer.data(), buffer.size());
-           if (nbytes == -1) {
-             throw std::system_error(errno, std::system_category());
-           }
-           return buffer.subspan(0, nbytes);
-         });
-}
-
 int main() {
-  gsenders::glib_io_context io_context{};
-  gsenders::glib_scheduler scheduler = io_context.get_scheduler();
+  glib_io_context io_context{};
+  glib_scheduler scheduler = io_context.get_scheduler();
 
   int i = 0;
+
+  using namespace std::literals::chrono_literals;
 
   auto schedule = stdexec::schedule(scheduler);
   auto add_one = schedule | stdexec::then([&i] { i += 1; });
 
-  auto wait_a_second =
-      gsenders::wait_for(scheduler, std::chrono::seconds(1));
+  auto wait_a_second = wait_for(scheduler, 1s);
 
-  auto wait_two_seconds =
-      gsenders::wait_for(scheduler, std::chrono::seconds(2));
+  auto wait_two_seconds = wait_for(scheduler, 2s);
 
   auto and_just_stop =
       stdexec::let_value([] { return stdexec::just_stopped(); });
@@ -70,7 +59,7 @@ int main() {
   char buffer[1024];
 
   int n = 0;
-  auto n_is_bigger_than_10 = async_read(fd, buffer) //
+  auto n_is_bigger_than_10 = async_read_some(fd, buffer) //
                              | stdexec::then([&n](std::span<char> buf) {
                                  std::string_view sv(buf.data(), buf.size());
                                  n += buf.size();
@@ -78,8 +67,18 @@ int main() {
                                }) //
                              | stdexec::then([&n] { return n > 10; });
 
-  using gsenders::repeat_until;
-  stdexec::start_detached(repeat_until(n_is_bigger_than_10) | then_stop);
+  auto read_input = repeat_until(n_is_bigger_than_10) |
+                    stdexec::then([] { std::cout << "You win.\n"; }) |
+                    and_just_stop;
+  auto timeout = wait_for(scheduler, 10s) |
+                 stdexec::then([] { std::cout << "You lose.\n"; }) |
+                 and_just_stop;
+
+  auto timed_read = stdexec::when_all(read_input, timeout) //
+                    | stdexec::upon_stopped([] {})         //
+                    | then_stop;
+
+  stdexec::start_detached(timed_read);
 
   io_context.run();
 }

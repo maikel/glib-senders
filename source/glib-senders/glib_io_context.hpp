@@ -294,8 +294,21 @@ template <typename Receiver> struct wait_until_operation {
   int fd_{};
   io_condition condition_{};
   Receiver receiver_{};
+
+  struct wait_until_source : ::GSource {
+    stdexec::in_place_stop_source* stop_source_;
+  };
   inline static GSourceFuncs vtable_{
-      nullptr, // prepare
+      [](::GSource* source, int* timeout) -> gboolean {
+        if (timeout) {
+          *timeout = -1;
+        }
+        if (source) {
+          auto& self = *static_cast<wait_until_source*>(source);
+          return self.stop_source_->stop_requested();
+        }
+        return true;
+      },       // prepare
       nullptr, // check
       [](::GSource*, ::GSourceFunc callback, gpointer data) -> gboolean {
         if (callback) {
@@ -306,6 +319,19 @@ template <typename Receiver> struct wait_until_operation {
       nullptr, // finalize
       nullptr,
       nullptr};
+
+  struct on_stop_requested {
+    stdexec::in_place_stop_source& stop_source_;
+    ::GMainContext* context_;
+    void operator()() noexcept {
+      stop_source_.request_stop();
+      ::g_main_context_wakeup(context_);
+    }
+  };
+  stdexec::in_place_stop_source stop_source_{};
+  using on_stop = std::optional<typename stdexec::stop_token_of_t<
+      stdexec::env_of_t<Receiver>&>::template callback_type<on_stop_requested>>;
+  on_stop on_stop_{};
 
   ::GIOCondition get_g_io_condition() {
     ::GIOCondition g_condition{};
@@ -321,16 +347,28 @@ template <typename Receiver> struct wait_until_operation {
 
   friend auto tag_invoke(stdexec::start_t, wait_until_operation& op) noexcept
       -> void {
-    GSource* source = ::g_source_new(&vtable_, sizeof(GSource));
+    auto source = static_cast<wait_until_source*>(
+        ::g_source_new(&vtable_, sizeof(wait_until_source)));
+    source->stop_source_ = &op.stop_source_;
+    op.on_stop_.emplace(stdexec::get_stop_token(stdexec::get_env(op.receiver_)),
+                        on_stop_requested{op.stop_source_, op.context_});
     ::g_source_add_unix_fd(source, op.fd_, op.get_g_io_condition());
     ::g_source_set_callback(
         source,
         [](gpointer data) -> gboolean {
-          auto* op = static_cast<wait_until_operation*>(data);
+          if (!data) {
+            return G_SOURCE_REMOVE;
+          }
+          auto& self = *static_cast<wait_until_operation*>(data);
           try {
-            stdexec::set_value((Receiver &&) op->receiver_, op->fd_);
+            self.on_stop_.reset();
+            if (self.stop_source_.stop_requested()) {
+              stdexec::set_stopped(std::move(self.receiver_));
+            } else {
+              stdexec::set_value(std::move(self.receiver_), self.fd_);
+            }
           } catch (...) {
-            stdexec::set_error((Receiver &&) op->receiver_,
+            stdexec::set_error(std::move(self.receiver_),
                                std::current_exception());
           }
           return G_SOURCE_REMOVE;
