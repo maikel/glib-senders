@@ -21,16 +21,19 @@ jobs:
     - uses: actions/checkout@v3
 
     - name: Install stdexec
-      run:
-        - git clone https://github.com/NVIDIA/stdexec.git /stdexec
-        - cmake -S /stdexec -B /stdexec-build
-        - cmake --build /stdexec-build
-        - cmake --install /stdexec-build
+      shell: bash
+      working-directory: ${{ env.HOME }}
+      run: |
+        git clone https://github.com/NVIDIA/stdexec.git
+        cd stdexec
+        mkdir build && cd build
+        cmake ../ -DBUILD_TESTING="OFF" -DSTDEXEC_BUILD_TESTS="OFF" -DSTDEXEC_BUILD_EXAMPLES="OFF" -DCMAKE_BUILD_TYPE="Debug" -DCMAKE_INSTALL_PREFIX="$HOME/.local/"
+        cmake --build . --config Debug --target install
 
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
       # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
-      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_PREFIX_PATH="$HOME/.local"
 
     - name: Build
       # Build your program with the given configuration
