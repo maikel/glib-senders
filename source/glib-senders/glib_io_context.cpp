@@ -30,6 +30,11 @@ auto tag_invoke(wait_until_t, glib_scheduler self, int fd,
   return wait_until_sender{self, fd, condition};
 }
 
+glib_scheduler::glib_scheduler() noexcept {
+  static glib_io_context ctx{};
+  context_ = &ctx;
+}
+
 auto glib_io_context::get_scheduler() noexcept -> glib_scheduler {
   return glib_scheduler{*this};
 }
@@ -44,16 +49,8 @@ void glib_io_context::loop_destroy::operator()(
   g_main_loop_unref(pointer);
 }
 
-glib_io_context::glib_io_context() {
-  context_.reset(::g_main_context_new());
-  if (!context_) {
-    throw std::runtime_error("g_main_context_new failed");
-  }
-  loop_.reset(g_main_loop_new(context_.get(), false));
-  if (!loop_) {
-    throw std::runtime_error("g_main_loop_new failed");
-  }
-}
+glib_io_context::glib_io_context()
+    : glib_io_context(::g_main_context_default()) {}
 
 glib_io_context::glib_io_context(::GMainContext* other) {
   context_.reset(::g_main_context_ref(other));

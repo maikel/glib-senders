@@ -17,30 +17,10 @@ using stdexec::tag_invocable;
 using stdexec::tag_invoke_result;
 using stdexec::tag_invoke_result_t;
 
-struct wait_for_t {
-  template <class S, typename Duration>
-  requires stdexec::scheduler<S> && tag_invocable<wait_for_t, S, Duration> &&
-           stdexec::sender<tag_invoke_result_t<wait_for_t, S, Duration>>
-  [[nodiscard]] auto operator()(S&& scheduler, Duration duration) const
-      noexcept(nothrow_tag_invocable<wait_for_t, S, Duration>) {
-    return tag_invoke(wait_for_t{}, std::forward<S>(scheduler), duration);
-  }
-};
-inline constexpr wait_for_t wait_for{};
-
-struct wait_until_t {
-  template <class S, typename... Args>
-  requires stdexec::scheduler<S> && tag_invocable<wait_until_t, S, Args...> &&
-           stdexec::sender<tag_invoke_result_t<wait_until_t, S, Args...>>
-  [[nodiscard]] auto operator()(S&& scheduler, Args&&... args) const
-      noexcept(stdexec::nothrow_tag_invocable<wait_until_t, S, Args...>) {
-    return tag_invoke(wait_until_t{}, std::forward<S>(scheduler),
-                      std::forward<Args>(args)...);
-  }
-};
-inline constexpr wait_until_t wait_until{};
-
 class glib_io_context;
+
+struct wait_for_t;
+struct wait_until_t;
 
 struct schedule_sender;
 struct wait_for_sender;
@@ -52,6 +32,7 @@ auto operator&(io_condition, io_condition) noexcept -> bool;
 
 class glib_scheduler {
 public:
+  glib_scheduler() noexcept;
   explicit glib_scheduler(glib_io_context& ctx) : context_{&ctx} {}
 
 private:
@@ -75,6 +56,37 @@ private:
 
   glib_io_context* context_;
 };
+
+struct wait_for_t {
+  template <class S, typename Duration>
+  requires stdexec::scheduler<S> && tag_invocable<wait_for_t, S, Duration> &&
+           stdexec::sender<tag_invoke_result_t<wait_for_t, S, Duration>>
+  [[nodiscard]] auto operator()(S&& scheduler, Duration duration) const
+      noexcept(nothrow_tag_invocable<wait_for_t, S, Duration>) {
+    return tag_invoke(wait_for_t{}, std::forward<S>(scheduler), duration);
+  }
+
+  template <typename Duration>
+  requires tag_invocable<wait_for_t, glib_scheduler&&, Duration> &&
+           stdexec::sender<tag_invoke_result_t<wait_for_t, glib_scheduler&&, Duration>>
+  [[nodiscard]] auto operator()(Duration duration) const noexcept {
+    
+    return tag_invoke(wait_for_t{}, glib_scheduler{}, duration);
+  }
+};
+inline constexpr wait_for_t wait_for{};
+
+struct wait_until_t {
+  template <class S, typename... Args>
+  requires stdexec::scheduler<S> && tag_invocable<wait_until_t, S, Args...> &&
+           stdexec::sender<tag_invoke_result_t<wait_until_t, S, Args...>>
+  [[nodiscard]] auto operator()(S&& scheduler, Args&&... args) const
+      noexcept(stdexec::nothrow_tag_invocable<wait_until_t, S, Args...>) {
+    return tag_invoke(wait_until_t{}, std::forward<S>(scheduler),
+                      std::forward<Args>(args)...);
+  }
+};
+inline constexpr wait_until_t wait_until{};
 
 class glib_io_context {
 public:

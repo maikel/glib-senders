@@ -13,7 +13,8 @@ namespace gsenders {
 
 struct async_write_some_t {
   template <class Object>
-  requires stdexec::tag_invocable<async_write_some_t, Object, std::span<const char>>
+  requires stdexec::tag_invocable<async_write_some_t, Object,
+                                  std::span<const char>>
   auto operator()(Object&& io, std::span<const char> buffer) const
       noexcept(stdexec::nothrow_tag_invocable<async_write_some_t, Object,
                                               std::span<char>>) {
@@ -32,8 +33,9 @@ struct async_write_some_t {
 
   template <class S>
   requires stdexec::sender<S>
-  auto operator()(S&& sender) const noexcept(
-      stdexec::nothrow_tag_invocable<async_write_some_t, S, std::span<const char>>) {
+  auto operator()(S&& sender) const
+      noexcept(stdexec::nothrow_tag_invocable<async_write_some_t, S,
+                                              std::span<const char>>) {
     return stdexec::let_value(
         std::forward<S>(sender), []<class T>(T&& io, std::span<char> buffer) {
           return tag_invoke(async_write_some_t{}, std::forward<T>(io), buffer);
@@ -97,7 +99,9 @@ private:
   int fd_;
 
 public:
-  basic_file_descriptor() = default;
+  explicit basic_file_descriptor(int fd) noexcept
+  requires std::is_default_constructible_v<Scheduler>
+      : scheduler_(Scheduler()), fd_(fd) {}
 
   basic_file_descriptor(Scheduler scheduler, int fd) noexcept
       : scheduler_(std::move(scheduler)), fd_(fd) {}
@@ -120,8 +124,8 @@ public:
            });
   }
 
-    friend auto tag_invoke(async_write_some_t, basic_file_descriptor fd,
-                           std::span<const char> buffer) {
+  friend auto tag_invoke(async_write_some_t, basic_file_descriptor fd,
+                         std::span<const char> buffer) {
     return wait_until(fd.scheduler_, fd.fd_, io_condition::is_writeable) |
            stdexec::then([buffer](int fd) {
              ssize_t nbytes = ::write(fd, buffer.data(), buffer.size());
