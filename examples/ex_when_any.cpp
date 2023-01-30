@@ -10,7 +10,7 @@ int main() {
   char buffer[128];
 
   stdexec::start_detached( //
-      when_any(stdexec::just()));
+      when_any(stdexec::just(), stdexec::just()));
 
   glib_io_context{}.run();
 }
