@@ -24,6 +24,14 @@ private:
     op_->notify(CPO{}, ((Args &&) args)...);
   }
 
+  auto get_env() const noexcept -> env_t<stdexec::env_of_t<Receiver>> {
+    using with_token = stdexec::__with<stdexec::get_stop_token_t,
+                                       stdexec::in_place_stop_token>;
+    auto token = with_token{op_->stop_source_.get_token()};
+    auto env = stdexec::get_env(op_->receiver_);
+    return env_t<stdexec::env_of_t<Receiver>>((with_token &&) token, env);
+  }
+
   template <stdexec::__one_of<stdexec::set_value_t, stdexec::set_error_t,
                               stdexec::set_stopped_t>
                 CPO,
@@ -32,9 +40,9 @@ private:
     self.notify(CPO{}, ((Args &&) args)...);
   }
 
-  friend auto tag_invoke(stdexec::get_env_t, const receiver&) noexcept
-      -> stdexec::__empty_env {
-    return {};
+  friend auto tag_invoke(stdexec::get_env_t, const receiver& self) noexcept
+      -> env_t<stdexec::env_of_t<Receiver>> {
+    return self.get_env();
   }
 };
 
@@ -66,7 +74,8 @@ using signature_to_tuple_t = typename signature_to_tuple<Sig>::type;
 template <class... Senders>
 using result_type_t =
     stdexec::__mapply<stdexec::__transform<stdexec::__q<signature_to_tuple_t>,
-                                           stdexec::__q<std::variant>>,
+                                           stdexec::__mbind_front_q<
+                                               std::variant, std::monostate>>,
                       completion_signatures_t<Senders...>>;
 
 template <class Receiver, class... Senders> class operation {
@@ -91,32 +100,44 @@ private:
                        operation>{this});
         }}...} {}
 
-  std::atomic<bool> stopped_{false};
+  struct on_stop_requested {
+    stdexec::in_place_stop_source& stop_source_;
+    void operator()() noexcept { stop_source_.request_stop(); }
+  };
+
   std::atomic<int> count_{sizeof...(Senders)};
+  stdexec::in_place_stop_source stop_source_;
+  using on_stop = std::optional<typename stdexec::stop_token_of_t<
+      stdexec::env_of_t<Receiver>&>::template callback_type<on_stop_requested>>;
+  on_stop on_stop_{};
   Receiver receiver_;
 
   result_type_t<Senders...> result_;
 
   template <class CPO, class... Args>
   void notify(CPO, Args&&... args) noexcept {
-    if (!stopped_.exchange(true)) {
+    if (!stop_source_.request_stop()) {
       result_.template emplace<std::tuple<CPO, std::decay_t<Args>...>>(
           CPO{}, ((Args &&) args)...);
     }
     if (count_.fetch_sub(1) == 1) {
       std::visit(
           [this]<class Tuple>(Tuple&& result) {
-            std::apply(
-                [this]<class C, class... As>(C, As&&... args) noexcept {
-                  try {
-                    stdexec::tag_invoke(C{}, (Receiver &&) receiver_,
-                                        (As &&) args...);
-                  } catch (...) {
-                    stdexec::set_error((Receiver &&) receiver_,
-                                       std::current_exception());
-                  }
-                },
-                (Tuple &&) result);
+            if constexpr (std::same_as<std::decay_t<Tuple>, std::monostate>) {
+              stdexec::set_stopped((Receiver &&) receiver_);
+            } else {
+              std::apply(
+                  [this]<class C, class... As>(C, As&&... args) noexcept {
+                    try {
+                      stdexec::tag_invoke(C{}, (Receiver &&) receiver_,
+                                          (As &&) args...);
+                    } catch (...) {
+                      stdexec::set_error((Receiver &&) receiver_,
+                                         std::current_exception());
+                    }
+                  },
+                  (Tuple &&) result);
+            }
           },
           (result_type_t<Senders...> &&) result_);
     }
@@ -127,6 +148,9 @@ private:
       operation_states_;
 
   friend void tag_invoke(stdexec::start_t, operation& self) noexcept {
+    self.on_stop_.emplace(
+        stdexec::get_stop_token(stdexec::get_env(self.receiver_)),
+        on_stop_requested{self.stop_source_});
     std::apply([](auto&... ops) { (stdexec::start(ops), ...); },
                self.operation_states_);
   }
