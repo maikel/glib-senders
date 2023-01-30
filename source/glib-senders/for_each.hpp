@@ -9,8 +9,6 @@ using env_t = stdexec::__make_env_t<
     stdexec::__empty_env,
     stdexec::__with<stdexec::get_stop_token_t, stdexec::in_place_stop_token>>;
 
-template <class... Senders> struct operation_state_base {};
-
 enum class operation_status { start, running, done };
 
 template <class... Senders> struct completion_signatures;
@@ -45,48 +43,26 @@ using result_type_t =
                                                std::variant, std::monostate>>,
                       completion_signatures_t<Senders...>>;
 
-template <class... Senders> class receiver;
+template <class... Senders> struct shared_state;
 
-template <class... Senders> struct shared_state {
-  static constexpr std::size_t N = sizeof...(Senders);
-  using start_fn = void (*)(operation_state_base<Senders...>*);
-  using complete_fn = void (*)(operation_state_base<Senders...>*);
-
-  std::mutex vtable_mutex_;
-  std::array<start_fn, N> start_{};
-  std::array<complete_fn, N> complete_{};
-  std::array<operation_state_base<Senders...>*, N> ops_{};
-
-  std::tuple<Senders...> senders_;
-  std::tuple<stdexec::connect_result_t<Senders, receiver<shared_state>>...>
-      operation_states_;
-  std::atomic<operation_status> state_{operation_status::start};
-
-  std::array<stdexec::in_place_stop_source, N> local_stop_sources_{};
-  stdexec::in_place_stop_source global_stop_source_;
-
-  std::array<result_type_t<Senders...>, N> results_{};
-  std::atomic<std::size_t> count_{0};
-  std::atomic<std::size_t> connections_{0};
-};
-
-template <class... Senders> class receiver {
+template <class... Senders> struct receiver {
   shared_state<Senders...>* shared_state_;
 
-  template <class CPO, class... Args> void notify(CPO, Args&&... args) {
+  template <class CPO, class... Args>
+  void notify(CPO, Args&&... args) noexcept {
     auto rank = shared_state_->count_.fetch_add(1, std::memory_order_relaxed);
     assert(rank < sizeof...(Senders));
     if (shared_state_->local_stop_sources_[rank].stop_requested()) {
-      state_.results_[rank]
+      shared_state_->results_[rank]
           .template emplace<std::tuple<stdexec::set_stopped_t>>(
               stdexec::set_stopped);
     } else {
       try {
-        state_.results_[rank]
-            .template emplace<std::tuple<CPO, std::decay_t<Args>>>(
-                CPO{}, (Args &&) args...);
+        shared_state_->results_[rank]
+            .template emplace<std::tuple<CPO, std::decay_t<Args>...>>(
+                CPO{}, ((Args &&) args)...);
       } catch (...) {
-        state_.results_[rank]
+        shared_state_->results_[rank]
             .template emplace<
                 std::tuple<stdexec::set_error_t, std::exception_ptr>>(
                 stdexec::set_error, std::current_exception());
@@ -97,27 +73,62 @@ template <class... Senders> class receiver {
           shared_state_->connections_.fetch_sub(1, std::memory_order_relaxed);
       if (count == 1) {
         shared_state_->global_stop_source_.request_stop();
+        shared_state_->state_.store(operation_status::done,
+                                    std::memory_order_relaxed);
       }
       shared_state_->complete_[rank](shared_state_->ops_[rank]);
     }
+  }
+
+  template <stdexec::__one_of<stdexec::set_value_t, stdexec::set_stopped_t,
+                              stdexec::set_error_t>
+                CPO,
+            class... Args>
+  friend void tag_invoke(CPO cpo, receiver&& self, Args&&... args) noexcept {
+    self.notify(cpo, (Args &&) args...);
   }
 
   friend auto tag_invoke(stdexec::get_env_t, const receiver& self) noexcept
       -> env_t {
     using with_token = stdexec::__with<stdexec::get_stop_token_t,
                                        stdexec::in_place_stop_token>;
-    return env_t{with_token{op_->global_stop_source_.get_token()}};
+    return env_t{
+        with_token{self.shared_state_->global_stop_source_.get_token()}};
   }
 };
 
-template <class Receiver, class... Senders>
-class operation : public operation_state_base {
+template <class... Senders> struct shared_state {
+  static constexpr std::size_t N = sizeof...(Senders);
+  using complete_fn = void (*)(void*);
+
+  shared_state(Senders&&... senders)
+      : operation_states_{stdexec::__conv{[&, this] {
+          return stdexec::connect((Senders &&) senders,
+                                  receiver<Senders...>{this});
+        }}...} {}
+
+  std::tuple<stdexec::connect_result_t<Senders, receiver<Senders...>>...>
+      operation_states_;
+
+  std::array<complete_fn, N> complete_{};
+  std::array<void*, N> ops_{};
+
+  std::atomic<operation_status> state_{operation_status::start};
+
+  std::array<stdexec::in_place_stop_source, N> local_stop_sources_{};
+  stdexec::in_place_stop_source global_stop_source_;
+
+  std::array<result_type_t<Senders...>, N> results_{};
+  std::atomic<std::size_t> count_{0};
+  std::atomic<std::size_t> connections_{0};
+};
+
+template <class Receiver, class... Senders> struct operation {
   using shared_state_ptr = std::shared_ptr<shared_state<Senders...>>;
 
   shared_state_ptr state_;
   int index_;
   Receiver receiver_;
-  operation_status status_{operation_status::start};
 
   struct on_stop_requested {
     stdexec::in_place_stop_source& stop_source_;
@@ -127,30 +138,24 @@ class operation : public operation_state_base {
       stdexec::env_of_t<Receiver>&>::template callback_type<on_stop_requested>>;
   on_stop on_receiver_stop_{};
   using on_shared_stop = std::optional<
-      stdexec::inplace_stop_token::callback_type<on_stop_requested>>;
+      stdexec::in_place_stop_token::callback_type<on_stop_requested>>;
   on_shared_stop on_shared_stop_{};
 
   operation(shared_state_ptr&& state, int index, Receiver&& receiver)
       : state_{std::move(state)}, index_{index}, receiver_{(Receiver &&)
                                                                receiver} {
-    on_stop_.emplace(std::exec::get_stop_token(receiver_),
-                     on_stop_requested{state_->stop_source_});
-    on_shared_stop_.emplace(state_->stop_source_.get_token(),
-                            on_stop_requested{state_->stop_source_});
-    std::scoped_lock lock{state_->vtable_mutex_};
-    state_->count_.fetch_add(1, std::memory_order_relaxed);
-    state_->complete_[index_] = [](operation_state_base<Senders...>* op) {
+    on_receiver_stop_.emplace(
+        stdexec::get_stop_token(stdexec::get_env(receiver_)),
+        on_stop_requested{state_->local_stop_sources_[index_]});
+    on_shared_stop_.emplace(
+        state_->global_stop_source_.get_token(),
+        on_stop_requested{state_->local_stop_sources_[index_]});
+
+    state_->connections_.fetch_add(1, std::memory_order_relaxed);
+    state_->complete_[index_] = [](void* op) {
       static_cast<operation*>(op)->complete();
     };
-    state_->start_[index_] = [](operation_state_base<Senders...>* op) {
-      static_cast<operation*>(op)->start();
-    };
     state_->ops_[index_] = this;
-  }
-
-  auto start() noexcept -> void {
-    state_ = operation_state::running;
-    operation_state_.start();
   }
 
   auto complete() noexcept -> void {
@@ -172,47 +177,37 @@ class operation : public operation_state_base {
                 (Tuple &&) result);
           }
         },
-        (result_type_t<Senders...> &&) state_.results_[index_]);
+        (result_type_t<Senders...> &&) state_->results_[index_]);
   }
 
-  friend void tag_invoke(stdexec::start_t, operation& self) {
+  void start() noexcept {
     operation_status expected = operation_status::start;
     // Check wheter we are responsible to start all operations
-    self.state_->state_.compare_exchange_strong(expected,
-                                                operation_status::running);
+    state_->state_.compare_exchange_strong(expected, operation_status::running);
     switch (expected) {
     case operation_status::start: {
-      std::scoped_lock lock{state_->vtable_mutex_};
       // We are responsible to start all operations
-      for (std::size_t i = 0; i < N; ++i) {
-        if (state_->start_[i]) {
-          state_->start_[i](state_->ops_[i]);
-        }
-      }
+      std::apply([](auto&... o) { (stdexec::start(o), ...); }, state_->operation_states_);
     } break;
     case operation_status::running: {
-      // We are not responsible to start all operations
-      // We are responsible to start the current operation
-      std::scoped_lock lock{state_->vtable_mutex_};
-      if (status_ == operation_status::start) {
-        start();
-      }
+      // We are not responsible to start any operation
     } break;
     case operation_status::done: {
       // We are not responsible to start all operations
-      // We are not responsible to start the current operation
       // We are responsible to complete the current operation
       complete();
     } break;
     }
   }
+
+  friend void tag_invoke(stdexec::start_t, operation& self) noexcept {
+    self.start();
+  }
 };
 
 template <class... Senders> class sender {
-  using shared_state_ptr = std::shared_ptr<shared_state<Senders...>>;
-
-  shared_state_ptr state_;
-  int index_;
+public:
+  using completion_signatures = completion_signatures_t<Senders...>;
 
   sender(const sender&) = delete;
   sender& operator=(const sender&) = delete;
@@ -220,33 +215,49 @@ template <class... Senders> class sender {
   sender(sender&&) = default;
   sender& operator=(sender&&) = default;
 
+private:
+  using shared_state_ptr = std::shared_ptr<shared_state<Senders...>>;
+
+  friend struct for_each_t;
+
+  shared_state_ptr state_{nullptr};
+  int index_{-1};
+
+  sender() = default;
+
   template <class Receiver>
   friend auto tag_invoke(stdexec::connect_t, sender&& self,
-                         Receiver&& receiver) && {
+                         Receiver&& receiver) {
     if (!self.state_) {
       throw std::logic_error("state is nullptr");
     }
-    if (!(0 <= index_ && index_ < sizeof...(Senders))) {
+    if (!(0 <= self.index_ && self.index_ < sizeof...(Senders))) {
       throw std::logic_error("invalid index");
     }
 
     return operation<Receiver, Senders...>((shared_state_ptr &&) self.state_,
-                                           std::exchange(index_, -1),
+                                           std::exchange(self.index_, -1),
                                            (Receiver &&) receiver);
+  }
+
+  friend auto tag_invoke(stdexec::get_attrs_t, const sender& self) noexcept
+      -> stdexec::__empty_attrs {
+    return {};
   }
 };
 
 struct for_each_t {
-  template <typename... Senders>
-  auto operator()(Senders&&... senders) const {
-    auto state = std::make_shared<shared_state<std::decay_t<Senders>...>>();
-    state->senders_ = std::tuple{((Senders&&) senders)...};
-    std::array<sender<std::decay_t<Senders>...>, sizeof...(Senders)> senders{};
-    for (std::size_t i = 0; i < sizeof...(Senders); ++i) {
-      senders_[i].state_ = state;
-      senders_[i].index_ = i;
+  template <typename... Senders> auto operator()(Senders&&... senders) const {
+    auto state = std::make_shared<shared_state<std::decay_t<Senders>...>>(
+        ((Senders &&) senders)...);
+    std::array<sender<std::decay_t<Senders>...>, sizeof...(Senders)> result{};
+    static_assert(stdexec::sender<sender<std::decay_t<Senders>...>,
+                                  stdexec::__env::no_env>);
+    for (std::size_t i = 0; i < result.size(); ++i) {
+      result[i].state_ = state;
+      result[i].index_ = i;
     }
-    return senders;
+    return result;
   }
 };
 
