@@ -1,7 +1,13 @@
 #ifndef GLIB_SENDERS_WHEN_ANY_HPP
 #define GLIB_SENDERS_WHEN_ANY_HPP
 
+#include <atomic>
+#include <concepts>
+#include <optional>
 #include <tuple>
+#include <type_traits>
+#include <utility>
+#include <variant>
 
 #include <stdexec/execution.hpp>
 
