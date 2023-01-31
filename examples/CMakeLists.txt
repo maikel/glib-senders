@@ -10,8 +10,8 @@ target_link_libraries(ex_echo_coroutine glib-senders::glib-senders)
 add_executable(ex_when_any ex_when_any.cpp)
 target_link_libraries(ex_when_any glib-senders::glib-senders)
 
-add_executable(ex_for_each ex_for_each.cpp)
-target_link_libraries(ex_for_each glib-senders::glib-senders)
+add_executable(ex_sequence ex_sequence.cpp)
+target_link_libraries(ex_sequence glib-senders::glib-senders)
 
 add_executable(ex_atomic_intrusive_queue ex_atomic_intrusive_queue.cpp)
 target_link_libraries(ex_atomic_intrusive_queue glib-senders::glib-senders)
