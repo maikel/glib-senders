@@ -25,6 +25,7 @@ exec::task<void> write(file_descriptor fd, std::span<const char> buffer) {
     buffer = co_await async_write_some(fd, buffer);
   }
 } 
+
 exec::task<void> echo(file_descriptor in, file_descriptor out) {
   char buffer[1024];
   int n = 0;
@@ -35,10 +36,10 @@ exec::task<void> echo(file_descriptor in, file_descriptor out) {
 } 
 
 int main() {
-  glib_io_context io_context{::g_main_context_default()};
-  file_descriptor in{io_context.get_scheduler(), STDIN_FILENO};
-  file_descriptor out{io_context.get_scheduler(), STDOUT_FILENO};
-  stdexec::start_detached(echo(in, out));
-  io_context.run();
+  file_descriptor in{STDIN_FILENO};
+  file_descriptor out{STDOUT_FILENO};
+  auto then_stop = stdexec::then([] { glib_io_context().stop(); });
+  stdexec::start_detached(echo(in, out) | then_stop);
+  glib_io_context().run();
 }
 ```
