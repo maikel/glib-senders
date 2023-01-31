@@ -11,23 +11,33 @@ int main() {
   using namespace std::chrono_literals;
 
   glib_io_context context{};
-  file_descriptor fd{STDIN_FILENO};
-  char buffer[128];
+  std::thread runner{[&] { context.run(); }};
 
-  auto work = for_each(async_read_some(fd, buffer), wait_for(10s));
-  auto prints = std::ranges::views::transform(work, [](auto&& result) {
-    return std::move(result) | stdexec::then([](auto&&... args) {
-             if constexpr (sizeof...(args) == 0) {
-               std::cout << "Timeout!\n";
-             } else {
-               std::cout << "Read " << std::get<0>(std::tuple{args...}).size()
-                         << " bytes\n";
-             }
-           });
-  });
+  file_descriptor fd1{STDIN_FILENO};
+  file_descriptor fd2{STDIN_FILENO};
+  char buffer1[128];
+  char buffer2[128];
 
-  stdexec::start_detached(stdexec::when_all(prints[0], prints[1]) |
-                          stdexec::then([&] { context.stop(); }));
+  {
+    enum class operation_kind { read, timeout };
+    // for_each returns a stream of senders
+    auto queue = for_each(async_read_some(fd1, buffer1), wait_for(10s));
+    for (stdexec::sender auto work : queue) {
+      auto result = stdexec::sync_wait(std::move(work) | stdexec::then([](auto... args) -> int {
+        if constexpr (sizeof...(args)) {
+          return 1;
+        }
+        return 0;
+      }));
+      if (result && std::get<0>(*result)) {
+        std::cout << "Read!\n";
+        break;
+      } else {
+        std::cout << "Timeout!\n";
+      }
+    }
+  }
 
-  context.run();
+  context.stop();
+  runner.join();
 }
