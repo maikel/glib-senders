@@ -6,7 +6,7 @@
 
 namespace gsenders {
 
-template <typename T, std::atomic<T*> T::*NextPtr>
+template <typename T, std::atomic<T*> T::*NextPtr = &T::next>
 class atomic_intrusive_queue {
 public:
   using node_pointer = T*;
