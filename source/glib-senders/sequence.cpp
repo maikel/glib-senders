@@ -1,1 +1,1 @@
-#include "glib-senders/for_each.hpp"
+#include "glib-senders/sequence.hpp"

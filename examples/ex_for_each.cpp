@@ -1,5 +1,5 @@
 #include "glib-senders/file_descriptor.hpp"
-#include "glib-senders/for_each.hpp"
+#include "glib-senders/sequence.hpp"
 #include "glib-senders/glib_io_context.hpp"
 
 #include <array>
@@ -20,8 +20,8 @@ int main() {
 
   {
     enum class operation_kind { read, timeout };
-    // for_each returns a stream of senders
-    auto queue = for_each(async_read_some(fd1, buffer1), wait_for(10s));
+    // sequence returns a stream of senders
+    auto queue = sequence(async_read_some(fd1, buffer1), wait_for(10s));
     for (stdexec::sender auto work : queue) {
       auto result = stdexec::sync_wait(std::move(work) | stdexec::then([](auto... args) -> int {
         if constexpr (sizeof...(args)) {

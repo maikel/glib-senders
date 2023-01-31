@@ -1,16 +1,18 @@
-#ifndef GLIB_SENDERS_FOR_EACH_HPP
-#define GLIB_SENDERS_FOR_EACH_HPP
+#ifndef GLIB_SENDERS_SEQUENCE_HPP
+#define GLIB_SENDERS_SEQUENCE_HPP
 
 #include "glib-senders/atomic_intrusive_queue.hpp"
 
+#include <atomic>
 #include <concepts>
+#include <optional>
 #include <ranges>
 #include <stdexec/execution.hpp>
 #include <tuple>
 #include <variant>
 
 namespace gsenders {
-namespace for_each_ {
+namespace sequence_ {
 using env_t = stdexec::__make_env_t<
     stdexec::__empty_env,
     stdexec::__with<stdexec::get_stop_token_t, stdexec::in_place_stop_token>>;
@@ -385,7 +387,7 @@ auto stream<Senders...>::cleanup() noexcept -> cleanup_sender<Senders...> {
   return cleanup_sender<Senders...>{*this};
 }
 
-struct for_each_t {
+struct sequence_t {
   template <typename... Senders>
   auto operator()(Senders&&... senders) const noexcept
       -> stream<std::decay_t<Senders>...> {
@@ -393,11 +395,11 @@ struct for_each_t {
   }
 };
 
-inline constexpr for_each_t for_each;
+inline constexpr sequence_t sequence;
 
-} // namespace for_each_
+} // namespace sequence_
 
-using for_each_::for_each;
+using sequence_::sequence;
 
 } // namespace gsenders
 
