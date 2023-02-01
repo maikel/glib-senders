@@ -24,6 +24,7 @@ target_include_directories(glib-senders
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/source>
     $<INSTALL_INTERFACE:include>)
 target_sources(glib-senders PRIVATE
+  source/glib-senders/at_coroutine_exit.hpp
   source/glib-senders/repeat_until.cpp
   source/glib-senders/when_any.cpp
   source/glib-senders/sequence.cpp
@@ -34,6 +35,7 @@ target_sources(glib-senders PUBLIC
   TYPE HEADERS
   BASE_DIRS source
   FILES
+    source/glib-senders/at_coroutine_exit.hpp
     source/glib-senders/repeat_until.hpp
     source/glib-senders/when_any.hpp
     source/glib-senders/sequence.hpp
