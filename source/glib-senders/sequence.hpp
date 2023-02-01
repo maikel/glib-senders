@@ -95,7 +95,8 @@ public:
       : stream(std::make_index_sequence<N>{}, ((Senders &&) senders)...) {}
 
   ~stream() {
-    if (count_done_.load() != N) {
+    auto count = count_done_.load();
+    if (count != -1 && count != N) {
       stdexec::sync_wait(cleanup());
     }
   }
@@ -198,21 +199,26 @@ template <class Receiver, class... Senders> struct cleanup_operation {
       typename stream<Senders...>::result_node* {
     Receiver& receiver = *static_cast<Receiver*>(s.receiver_);
     std::size_t count = sizeof...(Senders);
-    if (s.count_done_.compare_exchange_strong(count, 0)) {
+    if (s.count_done_.compare_exchange_strong(count, -1)) {
       stdexec::set_value((Receiver &&) receiver);
       return nullptr;
     }
     s.complete_.store(&complete);
     count = sizeof...(Senders);
-    if (s.count_done_.compare_exchange_strong(count, 0)) {
+    if (s.count_done_.compare_exchange_strong(count, -1)) {
       stdexec::set_value((Receiver &&) receiver);
     }
     return nullptr;
   }
 
   void start() noexcept {
-    stream_->global_stop_source_.request_stop();
+    if (stream_->count_done_.load(std::memory_order_relaxed) == -1) {
+      stdexec::set_value((Receiver &&) receiver_);
+      return;
+    }
+    stream_->receiver_ = &receiver_;
     stream_->complete_.store(nullptr);
+    stream_->global_stop_source_.request_stop();
     complete(*stream_);
   }
 
@@ -383,7 +389,6 @@ auto stream<Senders...>::next() noexcept -> sender<Senders...> {
 
 template <class... Senders>
 auto stream<Senders...>::cleanup() noexcept -> cleanup_sender<Senders...> {
-  global_stop_source_.request_stop();
   return cleanup_sender<Senders...>{*this};
 }
 
