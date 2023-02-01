@@ -89,8 +89,8 @@ template <typename Sender> struct repeat_sender {
 
   template <typename Self>
   requires stdexec::__decays_to<Self, repeat_sender>
-  friend auto tag_invoke(stdexec::get_attrs_t, Self&& self) {
-    return tag_invoke(stdexec::get_attrs_t{}, self.sender_);
+  friend auto tag_invoke(stdexec::get_env_t, Self&& self) {
+    return tag_invoke(stdexec::get_env_t{}, self.sender_);
   }
 };
 

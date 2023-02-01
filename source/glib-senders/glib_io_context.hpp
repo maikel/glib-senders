@@ -226,7 +226,7 @@ private:
     return {self.get_GMainContext(), std::forward<R>(receiver)};
   }
 
-  friend attrs tag_invoke(stdexec::get_attrs_t,
+  friend attrs tag_invoke(stdexec::get_env_t,
                           const schedule_sender& self) noexcept {
     return attrs{self.scheduler_};
   }
@@ -422,7 +422,7 @@ struct wait_until_sender {
     }
   };
 
-  friend attrs tag_invoke(stdexec::get_attrs_t,
+  friend attrs tag_invoke(stdexec::get_env_t,
                           const wait_until_sender& self) noexcept {
     return attrs{self.scheduler_};
   }

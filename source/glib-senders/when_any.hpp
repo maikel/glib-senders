@@ -178,8 +178,8 @@ template <class Sender, class... Senders> struct sender {
         (std::tuple<Sender, Senders...> &&) self.senders_, (R &&) receiver);
   }
 
-  friend auto tag_invoke(stdexec::get_attrs_t, const sender& self) noexcept
-      -> stdexec::__empty_attrs {
+  friend auto tag_invoke(stdexec::get_env_t, const sender& self) noexcept
+      -> stdexec::__empty_env {
     return {};
   }
 };
