@@ -26,6 +26,7 @@ target_include_directories(glib-senders
 target_sources(glib-senders PRIVATE
   source/glib-senders/repeat_until.cpp
   source/glib-senders/when_any.cpp
+  source/glib-senders/stream.cpp
   source/glib-senders/sequence.cpp
   source/glib-senders/file_descriptor.cpp
   source/glib-senders/glib_io_context.cpp)
@@ -36,6 +37,7 @@ target_sources(glib-senders PUBLIC
   FILES
     source/glib-senders/repeat_until.hpp
     source/glib-senders/when_any.hpp
+    source/glib-senders/stream.hpp
     source/glib-senders/sequence.hpp
     source/glib-senders/file_descriptor.hpp
     source/glib-senders/glib_io_context.hpp)
