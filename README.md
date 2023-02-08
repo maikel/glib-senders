@@ -36,10 +36,10 @@ exec::task<void> echo(file_descriptor in, file_descriptor out) {
 } 
 
 int main() {
+  glib_io_context ctx{};
   file_descriptor in{STDIN_FILENO};
   file_descriptor out{STDOUT_FILENO};
-  auto then_stop = stdexec::then([] { glib_io_context().stop(); });
-  stdexec::start_detached(echo(in, out) | then_stop);
-  glib_io_context().run();
+  stdexec::start_detached(echo(in, out) | stdexec::then([&] { ctx.stop(); }));
+  ctx.run();
 }
 ```
