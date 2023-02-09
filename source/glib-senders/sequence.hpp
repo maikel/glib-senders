@@ -239,9 +239,9 @@ private:
                                                    (Receiver &&) receiver};
   }
 
-  friend auto tag_invoke(stdexec::get_attrs_t,
+  friend auto tag_invoke(stdexec::get_env_t,
                          const cleanup_sender& self) noexcept
-      -> stdexec::__empty_attrs {
+      -> stdexec::__empty_env {
     return {};
   }
 };
@@ -370,8 +370,8 @@ private:
                                            (Receiver &&) receiver);
   }
 
-  friend auto tag_invoke(stdexec::get_attrs_t, const sender& self) noexcept
-      -> stdexec::__empty_attrs {
+  friend auto tag_invoke(stdexec::get_env_t, const sender& self) noexcept
+      -> stdexec::__empty_env {
     return {};
   }
 };
