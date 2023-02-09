@@ -15,3 +15,6 @@ target_link_libraries(ex_sequence glib-senders::glib-senders)
 
 add_executable(ex_atomic_intrusive_queue ex_atomic_intrusive_queue.cpp)
 target_link_libraries(ex_atomic_intrusive_queue glib-senders::glib-senders)
+
+# add_executable(ex_foldl ex_foldl.cpp)
+# target_link_libraries(ex_foldl glib-senders::glib-senders)

@@ -8,9 +8,12 @@
 #pragma once
 
 #include <stdexec/execution.hpp>
+#include <ranges>
 
 namespace gsenders
 {
+using stdexec::__t;
+
 namespace __streams {
 
 struct next_t {
@@ -39,15 +42,39 @@ using __streams::cleanup_t;
 inline constexpr next_t next;
 inline constexpr cleanup_t cleanup;
 
+
 template <class Stream>
 concept stream = requires (Stream&& s) {
   { next(s) } -> stdexec::sender;
   { cleanup(s) } -> stdexec::sender;
 };
 
+template <class Stream>
+  requires stream<Stream>
+struct next_sender {
+  using __t = std::decay_t<decltype(gsenders::next(std::declval<Stream&>()))>;
+};
+
+template <class Stream>
+using next_sender_t = __t<next_sender<Stream>>;
+
 namespace __all_of {
 
+template <class Stream>
+struct iterator {
+  Stream* stream_;
 
+  iterator& operator++() const noexcept { return *this;  }
+
+  iterator operator++(int) const noexcept { return *this; }
+
+  next_sender_t<Stream> operator*() const noexcept {
+    return next(*stream_);
+  }
+
+  friend auto operator<=>(const iterator&, const iterator&) const noexcept = default;
+};
+static_assert(std::input_iterator<iterator>);
 
 }
 
