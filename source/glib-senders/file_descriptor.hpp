@@ -12,82 +12,42 @@
 namespace gsenders {
 
 struct async_write_some_t {
-  template <class Object>
-  requires stdexec::tag_invocable<async_write_some_t, Object,
-                                  std::span<const char>>
-  auto operator()(Object&& io, std::span<const char> buffer) const
-      noexcept(stdexec::nothrow_tag_invocable<async_write_some_t, Object,
-                                              std::span<char>>) {
-    return tag_invoke(async_write_some_t{}, std::forward<Object>(io), buffer);
+  template <class Object, class Buffer>
+  requires stdexec::tag_invocable<async_write_some_t, Object, Buffer>
+  auto operator()(Object&& io, Buffer&& buffer) const noexcept(
+      stdexec::nothrow_tag_invocable<async_write_some_t, Object, Buffer>) {
+    return tag_invoke(async_write_some_t{}, (Object &&) io, (Buffer &&) buffer);
   }
 
-  template <class S>
+  template <class S, class Buffer>
   requires stdexec::sender<S>
-  auto operator()(S&& sender, std::span<const char> buffer) const noexcept(
-      stdexec::nothrow_tag_invocable<async_write_some_t, S, std::span<char>>) {
-    return stdexec::let_value(
-        std::forward<S>(sender), [buffer]<class T>(T&& io) {
-          return tag_invoke(async_write_some_t{}, std::forward<T>(io), buffer);
-        });
-  }
-
-  template <class S>
-  requires stdexec::sender<S>
-  auto operator()(S&& sender) const
-      noexcept(stdexec::nothrow_tag_invocable<async_write_some_t, S,
-                                              std::span<const char>>) {
-    return stdexec::let_value(
-        std::forward<S>(sender), []<class T>(T&& io, std::span<char> buffer) {
-          return tag_invoke(async_write_some_t{}, std::forward<T>(io), buffer);
-        });
-  }
-
-  auto operator()() const noexcept {
-    return stdexec::__binder_back<async_write_some_t>{{}, {}, {}};
-  }
-
-  auto operator()(std::span<char> buffer) const noexcept {
-    return stdexec::__binder_back<async_write_some_t, std::span<char>>{
-        {}, {}, {buffer}};
+  auto operator()(S&& sender, Buffer&& buffer) const
+      noexcept(stdexec::nothrow_tag_invocable<async_write_some_t, S, Buffer>) {
+    return stdexec::let_value(std::forward<S>(sender), [buffer]<class T>(
+                                                           T&& io) {
+      return tag_invoke(async_write_some_t{}, (T &&) io, (Buffer &&) buffer);
+    });
   }
 };
 
 struct async_read_some_t {
-  template <class Object>
-  requires stdexec::tag_invocable<async_read_some_t, Object, std::span<char>>
-  auto operator()(Object&& io, std::span<char> buffer) const
-      noexcept(stdexec::nothrow_tag_invocable<async_read_some_t, Object,
-                                              std::span<char>>) {
-    return tag_invoke(async_read_some_t{}, std::forward<Object>(io), buffer);
+  template <class Object, class Buffer>
+  requires stdexec::tag_invocable<async_read_some_t, Object, Buffer>
+  auto operator()(Object&& io, Buffer&& buffer) const noexcept(
+      stdexec::nothrow_tag_invocable<async_read_some_t, Object, Buffer>) {
+    return tag_invoke(async_read_some_t{}, std::forward<Object>(io),
+                      (Buffer &&) buffer);
   }
 
-  template <class S>
+  template <class S, class Buffer>
   requires stdexec::sender<S>
-  auto operator()(S&& sender, std::span<char> buffer) const noexcept(
-      stdexec::nothrow_tag_invocable<async_read_some_t, S, std::span<char>>) {
+  auto operator()(S&& sender, Buffer&& buffer) const
+      noexcept(stdexec::nothrow_tag_invocable<async_read_some_t, S, Buffer>) {
     return stdexec::let_value(
         std::forward<S>(sender), [buffer]<class T>(T&& io) {
-          return tag_invoke(async_read_some_t{}, std::forward<T>(io), buffer);
+          return tag_invoke(async_read_some_t{}, std::forward<T>(io),
+                            (Buffer &&) buffer);
         });
-  }
-
-  template <class S>
-  requires stdexec::sender<S>
-  auto operator()(S&& sender) const noexcept(
-      stdexec::nothrow_tag_invocable<async_read_some_t, S, std::span<char>>) {
-    return stdexec::let_value(
-        std::forward<S>(sender), []<class T>(T&& io, std::span<char> buffer) {
-          return tag_invoke(async_read_some_t{}, std::forward<T>(io), buffer);
-        });
-  }
-
-  auto operator()() const noexcept {
-    return stdexec::__binder_back<async_read_some_t>{{}, {}, {}};
-  }
-
-  auto operator()(std::span<char> buffer) const noexcept {
-    return stdexec::__binder_back<async_read_some_t, std::span<char>>{
-        {}, {}, {buffer}};
   }
 };
 inline constexpr async_read_some_t async_read_some;
@@ -116,7 +76,7 @@ public:
                          std::span<char> buffer) {
     return wait_until(fd.scheduler_, fd.fd_, io_condition::is_readable) |
            stdexec::then([buffer](int fd) {
-             ssize_t nbytes = ::read(fd, buffer.data(), buffer.size());
+             ssize_t nbytes = ::read(fd, buffer.data(), buffer.size_bytes());
              if (nbytes == -1) {
                throw std::system_error(errno, std::system_category());
              }
@@ -124,16 +84,30 @@ public:
            });
   }
 
+  template <class T>
+  requires(!std::same_as<T, char>)
+  friend auto tag_invoke(async_read_some_t tag, basic_file_descriptor fd,
+                         std::span<T> buffer) {
+    return tag_invoke(tag, fd, std::span{reinterpret_cast<char*>(buffer.data()), buffer.size_bytes()});
+  }
+
   friend auto tag_invoke(async_write_some_t, basic_file_descriptor fd,
                          std::span<const char> buffer) {
     return wait_until(fd.scheduler_, fd.fd_, io_condition::is_writeable) |
            stdexec::then([buffer](int fd) {
-             ssize_t nbytes = ::write(fd, buffer.data(), buffer.size());
+             ssize_t nbytes = ::write(fd, buffer.data(), buffer.size_bytes());
              if (nbytes == -1) {
                throw std::system_error(errno, std::system_category());
              }
              return buffer.subspan(nbytes);
            });
+  }
+
+  template <class T>
+  requires(!std::same_as<T, const char>)
+  friend auto tag_invoke(async_write_some_t tag, basic_file_descriptor fd,
+                         std::span<T> buffer) {
+    return tag_invoke(tag, fd, std::span{reinterpret_cast<const char*>(buffer.data()), buffer.size_bytes()});
   }
 };
 
@@ -154,6 +128,16 @@ public:
   ///
   /// @throws std::system_error if the file descriptor is invalid
   explicit safe_file_descriptor(int native_handle);
+
+  /// @brief Take ownership of a file descriptor.
+  ///
+  /// The constructor tests if the file descriptor is valid and throws an
+  /// exception if it is not.
+  ///
+  /// @param native_handle the file descriptor to take ownership of
+  ///
+  /// @throws std::system_error if the file descriptor is invalid
+  explicit safe_file_descriptor(file_descriptor fd);
 
   /// @brief Close the file descriptor if it is valid.
   ///
@@ -190,7 +174,13 @@ public:
   explicit operator bool() const noexcept;
 
 private:
-  int fd_{-1};
+  file_descriptor fd_{-1};
+
+  template <class Tag, class... Args>
+  requires stdexec::tag_invocable<Tag, file_descriptor&, Args...>
+  friend auto tag_invoke(Tag tag, safe_file_descriptor& self, Args&&... args) {
+    return stdexec::tag_invoke(tag, self.fd_, (Args &&) args...);
+  }
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -198,22 +188,26 @@ private:
 
 inline safe_file_descriptor::safe_file_descriptor(
     safe_file_descriptor&& other) noexcept
-    : fd_{std::exchange(other.fd_, -1)} {}
+    : fd_{std::exchange(other.fd_, file_descriptor(-1))} {}
 
 inline auto
 safe_file_descriptor::operator=(safe_file_descriptor&& other) noexcept
     -> safe_file_descriptor& {
-  fd_ = std::exchange(other.fd_, -1);
+  fd_ = std::exchange(other.fd_, file_descriptor(-1));
   return *this;
 }
 
-inline auto safe_file_descriptor::get() const noexcept -> int { return fd_; }
-
-inline auto safe_file_descriptor::release() noexcept -> int {
-  return std::exchange(fd_, -1);
+inline auto safe_file_descriptor::get() const noexcept -> int {
+  return fd_.get_handle();
 }
 
-inline safe_file_descriptor::operator bool() const noexcept { return fd_ >= 0; }
+inline auto safe_file_descriptor::release() noexcept -> int {
+  return std::exchange(fd_, file_descriptor(-1)).get_handle();
+}
+
+inline safe_file_descriptor::operator bool() const noexcept {
+  return fd_.get_handle() >= 0;
+}
 
 } // namespace gsenders
 
