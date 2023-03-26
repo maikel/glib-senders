@@ -20,9 +20,10 @@ auto tag_invoke(stdexec::schedule_t, glib_scheduler self) noexcept
   return schedule_sender{self};
 }
 
-auto tag_invoke(wait_for_t, glib_scheduler self,
-                std::chrono::milliseconds dur) noexcept -> wait_for_sender {
-  return wait_for_sender{self.get_GMainContext(), dur};
+auto tag_invoke(exec::schedule_after_t, glib_scheduler self,
+                std::chrono::system_clock::duration dur) noexcept -> wait_for_sender {
+  auto mil = std::chrono::duration_cast<std::chrono::milliseconds>(dur);
+  return wait_for_sender{self.get_GMainContext(), mil};
 }
 
 auto tag_invoke(wait_until_t, glib_scheduler self, int fd,

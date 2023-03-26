@@ -25,6 +25,6 @@ int main() {
   glib_io_context ctx{};
   file_descriptor in{STDIN_FILENO};
   file_descriptor out{STDOUT_FILENO};
-  stdexec::start_detached(echo(in, out) | stdexec::then([&] { ctx.stop(); }));
+  stdexec::start_detached(stdexec::on(ctx.get_scheduler(), echo(in, out) | stdexec::then([&] { ctx.stop(); })));
   ctx.run();
 }

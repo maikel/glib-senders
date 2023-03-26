@@ -9,6 +9,8 @@
 #include <stdexec/execution.hpp>
 #include <stdexec/stop_token.hpp>
 
+#include <exec/timed_scheduler.hpp>
+
 #include "glib.h"
 
 namespace gsenders {
@@ -19,12 +21,11 @@ using stdexec::tag_invoke_result_t;
 
 class glib_io_context;
 
-struct wait_for_t;
 struct wait_until_t;
 
-struct schedule_sender;
-struct wait_for_sender;
-struct wait_until_sender;
+class schedule_sender;
+class wait_for_sender;
+class wait_until_sender;
 
 enum class io_condition { is_readable = 1, is_writeable = 2, is_error = 4 };
 auto operator|(io_condition, io_condition) noexcept -> io_condition;
@@ -44,9 +45,14 @@ private:
   friend auto tag_invoke(stdexec::schedule_t, glib_scheduler self) noexcept
       -> schedule_sender;
 
-  friend auto tag_invoke(wait_for_t, glib_scheduler self,
-                         std::chrono::milliseconds dur) noexcept
+  friend auto tag_invoke(exec::schedule_after_t, glib_scheduler self,
+                         std::chrono::system_clock::duration dur) noexcept
       -> wait_for_sender;
+
+  friend std::chrono::system_clock::time_point tag_invoke(exec::now_t, glib_scheduler self) noexcept
+  { 
+    return std::chrono::system_clock::now();
+  }
 
   friend auto tag_invoke(wait_until_t, glib_scheduler self, int fd,
                          io_condition condition) noexcept -> wait_until_sender;
@@ -56,25 +62,6 @@ private:
 
   glib_io_context* context_;
 };
-
-struct wait_for_t {
-  template <class S, typename Duration>
-  requires stdexec::scheduler<S> && tag_invocable<wait_for_t, S, Duration> &&
-           stdexec::sender<tag_invoke_result_t<wait_for_t, S, Duration>>
-  [[nodiscard]] auto operator()(S&& scheduler, Duration duration) const
-      noexcept(nothrow_tag_invocable<wait_for_t, S, Duration>) {
-    return tag_invoke(wait_for_t{}, std::forward<S>(scheduler), duration);
-  }
-
-  template <typename Duration>
-  requires tag_invocable<wait_for_t, glib_scheduler&&, Duration> &&
-           stdexec::sender<tag_invoke_result_t<wait_for_t, glib_scheduler&&, Duration>>
-  [[nodiscard]] auto operator()(Duration duration) const noexcept {
-    
-    return tag_invoke(wait_for_t{}, glib_scheduler{}, duration);
-  }
-};
-inline constexpr wait_for_t wait_for{};
 
 struct wait_until_t {
   template <class S, typename... Args>
@@ -264,16 +251,11 @@ struct wait_for_operation {
         source,
         [](gpointer data) -> gboolean {
           auto& self = *static_cast<wait_for_operation*>(data);
-          try {
-            self.on_stop_.reset();
-            if (self.stop_source_.stop_requested()) {
-              stdexec::set_stopped(std::move(self.receiver_));
-            } else {
-              stdexec::set_value(std::move(self.receiver_));
-            }
-          } catch (...) {
-            stdexec::set_error(std::move(self.receiver_),
-                               std::current_exception());
+          self.on_stop_.reset();
+          if (self.stop_source_.stop_requested()) {
+            stdexec::set_stopped(std::move(self.receiver_));
+          } else {
+            stdexec::set_value(std::move(self.receiver_));
           }
           return G_SOURCE_REMOVE;
         },
@@ -286,7 +268,6 @@ struct wait_for_operation {
 struct wait_for_sender {
   using completion_signatures =
       stdexec::completion_signatures<stdexec::set_value_t(),
-                                     stdexec::set_error_t(std::exception_ptr),
                                      stdexec::set_stopped_t()>;
 
   ::GMainContext* context_{nullptr};

@@ -1,6 +1,8 @@
 #include "glib-senders/file_descriptor.hpp"
 #include "glib-senders/glib_io_context.hpp"
-#include "glib-senders/repeat_until.hpp"
+
+#include <exec/repeat_effect_until.hpp>
+
 #include <iostream>
 
 using namespace gsenders;
@@ -21,9 +23,9 @@ int main() {
   auto schedule = stdexec::schedule(scheduler);
   auto add_one = schedule | stdexec::then([&i] { i += 1; });
 
-  auto wait_a_second = wait_for(scheduler, 1s);
+  auto wait_a_second = exec::schedule_after(scheduler, 1s);
 
-  auto wait_two_seconds = wait_for(scheduler, 2s);
+  auto wait_two_seconds = exec::schedule_after(scheduler, 2s);
 
   auto and_just_stop =
       stdexec::let_value([] { return stdexec::just_stopped(); });
@@ -67,10 +69,10 @@ int main() {
                                }) //
                              | stdexec::then([&n] { return n > 10; });
 
-  auto read_input = repeat_until(n_is_bigger_than_10) |
+  auto read_input = exec::repeat_effect_until(n_is_bigger_than_10) |
                     stdexec::then([] { std::cout << "You win.\n"; });// |
                     // and_just_stop;
-  auto timeout = wait_for(scheduler, 10s) |
+  auto timeout = exec::schedule_after(scheduler, 10s) |
                  stdexec::then([] { std::cout << "You lose.\n"; });// |
                 //  and_just_stop;
 
