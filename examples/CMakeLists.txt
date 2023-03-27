@@ -9,3 +9,6 @@ target_link_libraries(ex_echo_coroutine glib-senders::glib-senders)
 
 add_executable(ex_when_any ex_when_any.cpp)
 target_link_libraries(ex_when_any glib-senders::glib-senders)
+
+add_executable(ex_channel ex_channel.cpp)
+target_link_libraries(ex_channel glib-senders::glib-senders)
