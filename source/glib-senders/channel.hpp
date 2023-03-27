@@ -73,7 +73,7 @@ template <class Ty> class channel {
       channel_operation* expected_op = nullptr;
       if (!channel_.op_.compare_exchange_strong(
               expected_op, static_cast<channel_operation*>(this),
-              std::memory_order_acquire, std::memory_order_relaxed)) {
+              std::memory_order_relaxed, std::memory_order_acquire)) {
         stdexec::set_value((ReceiveReceiver&&)rcvr_, (Ty&&)*channel_.value_);
         expected_op->complete_(expected_op);
       }
