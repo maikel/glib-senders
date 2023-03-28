@@ -84,7 +84,6 @@ namespace gsenders {
       }
 
       template <stdexec::receiver Rcvr>
-        requires next_receiver_of<Int, Rcvr>
       friend auto tag_invoke(stdexec::connect_t, sender&& self, Rcvr&& rcvr) {
         return operation<Int, Sender, std::decay_t<Rcvr>>{
           static_cast<Sender&&>(self.sndr_), static_cast<Rcvr&&>(rcvr), self.initial_val_};

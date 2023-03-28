@@ -27,8 +27,9 @@ target_sources(glib-senders PRIVATE
   source/glib-senders/channel.cpp
   source/glib-senders/enumerate.cpp
   source/glib-senders/file_descriptor.cpp
-  source/glib-senders/glib_io_context.cpp)
-  # source/glib-senders/stream_concepts.cpp)
+  source/glib-senders/glib_io_context.cpp
+  source/glib-senders/let_next.cpp
+  source/glib-senders/stream_concepts.cpp)
 target_sources(glib-senders PUBLIC
   FILE_SET glib_senders_headers
   TYPE HEADERS
@@ -37,8 +38,9 @@ target_sources(glib-senders PUBLIC
     source/glib-senders/channel.hpp
     source/glib-senders/enumerate.hpp
     source/glib-senders/file_descriptor.hpp
-    source/glib-senders/glib_io_context.hpp)
-    # source/glib-senders/stream_concepts.hpp)
+    source/glib-senders/glib_io_context.hpp
+    source/glib-senders/let_next.hpp
+    source/glib-senders/stream_concepts.hpp)
 target_link_libraries(glib-senders PUBLIC
   STDEXEC::stdexec
   Glib::Glib)
