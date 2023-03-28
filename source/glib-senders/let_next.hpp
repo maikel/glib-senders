@@ -19,7 +19,7 @@ namespace gsenders { namespace let_next_ {
     template <stdexec::sender Item>
     friend auto tag_invoke(set_next_t, receiver& self, Item&& item) noexcept {
       return set_next(
-        op_.rcvr_,
+        self.op_.rcvr_,
         stdexec::let_value(static_cast<Item&&>(item), [&self]<class... Args>(Args&&... args) {
           return self.op_.fun_(static_cast<Args&&>(args)...);
         }));
@@ -69,6 +69,10 @@ namespace gsenders { namespace let_next_ {
 
     template <class Env>
     friend auto tag_invoke(stdexec::get_completion_signatures_t, const sender& self, const Env& env)
-      -> stdexec::completion_signatures_of_t<_Sender, Env>;
+      -> stdexec::completion_signatures_of_t<Sender, Env>;
+
+    template <class Env>
+    friend auto tag_invoke(get_next_signatures_t, const sender& self, const Env& env)
+      -> stdexec::completion_signatures_of_t<Sender, Env>;
   };
 }}

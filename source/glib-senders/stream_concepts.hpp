@@ -6,7 +6,7 @@ namespace gsenders {
 
   struct set_next_t {
     template <class _Fn, class... _Args>
-    using __f = __minvoke<_Fn, _Args...>;
+    using __f = stdexec::__minvoke<_Fn, _Args...>;
 
     template <stdexec::receiver Receiver, stdexec::sender Item>
       requires stdexec::tag_invocable<set_next_t, Receiver&, Item>
@@ -33,9 +33,9 @@ namespace gsenders {
     template <std::same_as<set_next_t> Tag, class Ty = stdexec::__q<stdexec::__types>, class Item>
     stdexec::__types<stdexec::__minvoke<Ty, Item>> test(Tag (*)(Item));
     template <class, class = void>
-    stdexec::__types<> __test(...);
-    template <class Tag, class Ty = void, class... _Args>
-    void __test(Tag (*)(Args...) noexcept) = delete;
+    stdexec::__types<> test(...);
+    template <class Tag, class Ty = void, class... Args>
+    void test(Tag (*)(Args...) noexcept) = delete;
   } // namespace next_sig
 
   template <class Signature>
