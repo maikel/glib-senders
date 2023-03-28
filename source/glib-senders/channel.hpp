@@ -9,22 +9,39 @@ namespace gsenders {
 
 template <class Ty> class channel {
   struct channel_operation {
-    void (*complete_)(channel_operation*) noexcept = nullptr;
+    void (*complete_)(channel_operation* op,
+                      channel_operation* continuation) noexcept = nullptr;
   };
 
   template <class SendReceiver> class send_operation : channel_operation {
     channel& channel_{};
     Ty value_{};
     SendReceiver rcvr_{};
+    struct on_stop_t {
+      send_operation& self_;
+      void operator()() noexcept {
+        channel_operation* self = static_cast<channel_operation*>(&self_);
+        if (self_.channel_.op_.compare_exchange_strong(
+                self, nullptr, std::memory_order_relaxed)) {
+          if (pointer == static_cast<channel_operation*>(&self_)) {
+            stdexec::set_stopped(static_cast<SendReceiver&&>(self_.rcvr_));
+          }
+        }
+      }
+    };
+    stdexec::in_place_stop_callback<on_stop_t> on_channel_stop_{};
+    typename stdexec::get_stop_token_t<
+        stdexec::get_env_t<SendReceiver>>::template callback_type<on_stop_t>
+        on_receiver_stop_{};
 
     void start() noexcept {
-      channel_.value_.emplace((Ty&&)value_);
       channel_operation* expected_op = nullptr;
+      channel_.value_.emplace(static_cast<Ty&&>(value_));
       if (!channel_.op_.compare_exchange_strong(
               expected_op, static_cast<channel_operation*>(this),
               std::memory_order_release, std::memory_order_relaxed)) {
-        expected_op->complete_(expected_op);
-        stdexec::set_value((SendReceiver&&)rcvr_);
+        expected_op->complete_(expected_op, nullptr);
+        stdexec::set_value(static_cast<SendReceiver&&>(rcvr_));
       }
     }
 
@@ -36,9 +53,12 @@ template <class Ty> class channel {
     template <stdexec::__decays_to<SendReceiver> _Receiver>
     send_operation(channel& channel, Ty&& value, _Receiver&& rcvr)
         : channel_{channel}, value_{(Ty&&)value}, rcvr_{(_Receiver&&)rcvr} {
-      this->complete_ = [](channel_operation* op) noexcept {
+      this->complete_ = [](channel_operation* op, channel_operation*) noexcept {
         send_operation* self = static_cast<send_operation*>(op);
-        stdexec::set_value((SendReceiver&&)self->rcvr_);
+        if (self->channel_.op_.compare_exchange_strong(
+                op, nullptr, std::memory_order_relaxed)) {
+          stdexec::set_value(static_cast<SendReceiver&&>(self->rcvr_));
+        }
       };
     }
   };
@@ -61,7 +81,8 @@ template <class Ty> class channel {
     friend auto tag_invoke(stdexec::connect_t, _Self&& self, _Receiver&& rcvr)
         -> send_operation<std::decay_t<_Receiver>> {
       return send_operation<std::decay_t<_Receiver>>{
-          *self.channel_, (Ty&&)self.value_, (_Receiver&&)rcvr};
+          *self.channel_, (stdexec::__copy_cvref_t<Self, Ty>)self.value_,
+          (_Receiver&&)rcvr};
     }
   };
 
@@ -74,8 +95,8 @@ template <class Ty> class channel {
       if (!channel_.op_.compare_exchange_strong(
               expected_op, static_cast<channel_operation*>(this),
               std::memory_order_relaxed, std::memory_order_acquire)) {
-        stdexec::set_value((ReceiveReceiver&&)rcvr_, (Ty&&)*channel_.value_);
-        expected_op->complete_(expected_op);
+        expected_op->complete_(expected_op,
+                               static_cast<channel_operation*>(this));
       }
     }
 
@@ -87,10 +108,10 @@ template <class Ty> class channel {
     template <stdexec::__decays_to<ReceiveReceiver> _Receiver>
     receive_operation(channel& channel, _Receiver&& rcvr)
         : channel_{channel}, rcvr_{(_Receiver&&)rcvr} {
-      this->complete_ = [](channel_operation* op) noexcept {
+      this->complete_ = [](channel_operation* op, channel_operation*) noexcept {
         receive_operation* self = static_cast<receive_operation*>(op);
-        stdexec::set_value((ReceiveReceiver&&)self->rcvr_,
-                           (Ty&&)*self->channel_.value_);
+        stdexec::set_value(static_cast<ReceiveReceiver&&>(self->rcvr_),
+                           static_cast<Ty&&>(*self->channel_.value_));
       };
     }
   };
@@ -110,8 +131,38 @@ template <class Ty> class channel {
     requires stdexec::receiver_of<_Receiver, completion_signatures>
     friend receive_operation<std::decay_t<_Receiver>>
     tag_invoke(stdexec::connect_t, _Self&& self, _Receiver&& rcvr) {
-      return receive_operation<std::decay_t<_Receiver>>{*self.channel_,
-                                                        (_Receiver&&)rcvr};
+      return receive_operation<std::decay_t<_Receiver>>{
+          *self.channel_, static_cast<_Receiver&&>(rcvr)};
+    }
+  };
+
+  template <class WhenReceiver> class when_ready_operation : channel_operation {
+    channel& channel_{};
+    WhenReceiver rcvr_;
+
+    void start() noexcept {
+      channel_operation* expected_op = nullptr;
+      if (!channel_.op_.compare_exchange_strong(
+              expected_op, static_cast<channel_operation*>(this),
+              std::memory_order_relaxed, std::memory_order_relaxed)) {
+        stdexec::set_value(static_cast<WhenReceiver&&>(rcvr_));
+      }
+    }
+
+    friend void tag_invoke(stdexec::start_t,
+                           when_ready_operation& self) noexcept {
+      self.start();
+    }
+
+  public:
+    when_ready_operation(channel& channel, WhenReceiver&& rcvr)
+        : channel_{channel}, rcvr_{(WhenReceiver&&)rcvr} {
+      this->complete_ = [](channel_operation* op,
+                           channel_operation* cont) noexcept {
+        when_ready_operation* self = static_cast<when_ready_operation*>(op);
+        self->channel_.op_.store(cont, std::memory_order_relaxed);
+        stdexec::set_value(static_cast<WhenReceiver&&>(self->rcvr_));
+      };
     }
   };
 
@@ -126,10 +177,12 @@ public:
 
   receive_sender receive() noexcept { return receive_sender{*this}; }
 
+  void stop() noexcept { stop_source_.request_stop(); }
+
 private:
   std::optional<Ty> value_{};
   std::atomic<channel_operation*> op_{nullptr};
-  stdexec::in_place_stop_source __stop_source_{};
+  stdexec::in_place_stop_source stop_source_{};
 };
 
 } // namespace gsenders
