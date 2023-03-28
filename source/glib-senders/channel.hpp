@@ -23,15 +23,15 @@ template <class Ty> class channel {
         channel_operation* self = static_cast<channel_operation*>(&self_);
         if (self_.channel_.op_.compare_exchange_strong(
                 self, nullptr, std::memory_order_relaxed)) {
-          if (pointer == static_cast<channel_operation*>(&self_)) {
+          if (self == static_cast<channel_operation*>(&self_)) {
             stdexec::set_stopped(static_cast<SendReceiver&&>(self_.rcvr_));
           }
         }
       }
     };
-    stdexec::in_place_stop_callback<on_stop_t> on_channel_stop_{};
-    typename stdexec::get_stop_token_t<
-        stdexec::get_env_t<SendReceiver>>::template callback_type<on_stop_t>
+    std::optional<stdexec::in_place_stop_callback<on_stop_t>> on_channel_stop_{};
+    std::optional<typename stdexec::stop_token_of_t<
+        stdexec::env_of_t<SendReceiver>>::template callback_type<on_stop_t>>
         on_receiver_stop_{};
 
     void start() noexcept {
@@ -76,9 +76,9 @@ template <class Ty> class channel {
     channel* channel_;
     Ty value_;
 
-    template <stdexec::__decays_to<send_sender> _Self,
+    template <stdexec::__decays_to<send_sender> Self,
               stdexec::receiver_of<completion_signatures> _Receiver>
-    friend auto tag_invoke(stdexec::connect_t, _Self&& self, _Receiver&& rcvr)
+    friend auto tag_invoke(stdexec::connect_t, Self&& self, _Receiver&& rcvr)
         -> send_operation<std::decay_t<_Receiver>> {
       return send_operation<std::decay_t<_Receiver>>{
           *self.channel_, (stdexec::__copy_cvref_t<Self, Ty>)self.value_,

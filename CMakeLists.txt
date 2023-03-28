@@ -25,6 +25,7 @@ target_include_directories(glib-senders
     $<INSTALL_INTERFACE:include>)
 target_sources(glib-senders PRIVATE
   source/glib-senders/channel.cpp
+  source/glib-senders/enumerate.cpp
   source/glib-senders/file_descriptor.cpp
   source/glib-senders/glib_io_context.cpp)
   # source/glib-senders/stream_concepts.cpp)
@@ -34,6 +35,7 @@ target_sources(glib-senders PUBLIC
   BASE_DIRS source
   FILES
     source/glib-senders/channel.hpp
+    source/glib-senders/enumerate.hpp
     source/glib-senders/file_descriptor.hpp
     source/glib-senders/glib_io_context.hpp)
     # source/glib-senders/stream_concepts.hpp)
