@@ -36,11 +36,11 @@ namespace gsenders {
 
       template <stdexec::sender Item>
       friend auto tag_invoke(set_next_t, receiver& self, Item&& item) noexcept {
-        return stdexec::let_value(
+        return set_next(self.op_.rcvr_, stdexec::let_value(
           static_cast<Item&&>(item), [&self]<class... Args>(Args&&... args) {
             const Int count = self.op_.count_.fetch_add(1, std::memory_order_relaxed);
             return stdexec::just(count, static_cast<Args&&>(args)...);
-          });
+          }));
       }
 
       template <class Error>
