@@ -12,3 +12,6 @@ target_link_libraries(ex_when_any glib-senders::glib-senders)
 
 add_executable(ex_channel ex_channel.cpp)
 target_link_libraries(ex_channel glib-senders::glib-senders)
+
+add_executable(ex_repeat_effect ex_repeat_effect.cpp)
+target_link_libraries(ex_repeat_effect glib-senders::glib-senders)
