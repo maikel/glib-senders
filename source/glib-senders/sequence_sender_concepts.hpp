@@ -88,11 +88,13 @@ namespace gsenders {
   concept is_valid_next_completions = Signatures::template _WITH_RECEIVER_<Receiver>::value;
 
   template <class Receiver, class Signatures>
-  concept next_receiver_of = stdexec::receiver<Receiver> && requires(Signatures* sigs) {
-    {
-      has_next_signatures<std::decay_t<Receiver>>(sigs)
-    } -> is_valid_next_completions<std::decay_t<Receiver>>;
-  };
+  concept sequence_receiver_of =
+    stdexec::receiver_of<Receiver, stdexec::completion_signatures<stdexec::set_value_t()>>
+    && requires(Signatures* sigs) {
+         {
+           has_next_signatures<std::decay_t<Receiver>>(sigs)
+         } -> is_valid_next_completions<std::decay_t<Receiver>>;
+       };
 
   template <class Sender, class Env>
   concept with_next_signatures = requires(Sender&& sender, Env&& env) {
@@ -102,21 +104,22 @@ namespace gsenders {
   };
 
   template <class Sender, class Env>
-  concept next_sender_in = stdexec::sender_in<Sender, Env> && with_next_signatures<Sender, Env>;
+  concept sequence_sender_in =
+    stdexec::sender_of<Sender, stdexec::set_value_t(), Env> && with_next_signatures<Sender, Env>;
 
   template <class _Sender, class _Env>
   using get_next_signatures_result_t =
     stdexec::__call_result_t<get_next_signatures_t, _Sender, _Env>;
 
   template <class _Sender, class _Env>
-    requires next_sender_in<_Sender, _Env>
+    requires sequence_sender_in<_Sender, _Env>
   using next_signatures_of_t = get_next_signatures_result_t<_Sender, _Env>;
 
   template <class Sender, class Receiver>
-  concept next_sender_to =
+  concept sequence_sender_to =
     stdexec::sender_to<Sender, Receiver>                   //
-    && next_sender_in<Sender, stdexec::env_of_t<Receiver>> //
-    && next_receiver_of<Receiver, next_signatures_of_t<Sender, stdexec::env_of_t<Receiver>>>;
+    && sequence_sender_in<Sender, stdexec::env_of_t<Receiver>> //
+    && sequence_receiver_of<Receiver, next_signatures_of_t<Sender, stdexec::env_of_t<Receiver>>>;
 
   template <class Item>
   Item next_item_of(set_next_t (*)(Item));
@@ -132,7 +135,7 @@ namespace gsenders {
     next_signatures_of_t<Sender, Env>>;
 
   template <class Sender, class Env, class NewSigs, class FnSigs>
-    requires next_sender_in<Sender, Env>
+    requires sequence_sender_in<Sender, Env>
   using make_next_signatures_t = stdexec::__mapply<
     stdexec::__munique<stdexec::__q<next_signatures>>,
     stdexec::__minvoke<stdexec::__mconcat<>, NewSigs, apply_to_sigs<FnSigs, Sender, Env>>>;

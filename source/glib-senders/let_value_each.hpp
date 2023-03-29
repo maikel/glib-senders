@@ -80,8 +80,8 @@ namespace gsenders {
       }
 
       template <stdexec::receiver Rcvr>
-        requires next_receiver_of<Rcvr, next_signatures_t<Sender, stdexec::env_of_t<Rcvr>, Fun>>
-              && next_sender_to<Sender, receiver<Rcvr, Fun>>
+        requires sequence_receiver_of<Rcvr, next_signatures_t<Sender, stdexec::env_of_t<Rcvr>, Fun>>
+              && sequence_sender_to<Sender, receiver<Rcvr, Fun>>
       friend operation<Sender, std::decay_t<Rcvr>, Fun>
         tag_invoke(stdexec::connect_t, sender&& self, Rcvr&& rcvr) {
         return {
