@@ -1,8 +1,8 @@
-#include <glib-senders/repeat_each.hpp>
+#include <glib-senders/repeat_effect.hpp>
 
 using namespace gsenders;
 
 int main()
 {
-  auto r = repeat_each(stdexec::just());
+  auto r = repeat_effect(stdexec::just());
 }

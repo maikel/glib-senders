@@ -112,5 +112,5 @@ namespace gsenders {
   } // namespace repeat_each_
 
   using repeat_effect_::repeat_effect_t;
-  inline constexpr repeat_effect_t repeat_each;
+  inline constexpr repeat_effect_t repeat_effect;
 } // namespace gsenders
