@@ -24,19 +24,23 @@ namespace gsenders {
     };
 
     template <class Receiver, class Fun>
-    class receiver {
-      operation_base<Receiver, Fun>& op_;
+    struct receiver {
+      operation_base<Receiver, Fun>* op_;
 
       template <stdexec::sender Item>
       friend auto tag_invoke(set_next_t, receiver& self, Item&& item) noexcept {
         return set_next(
-          self.op_.rcvr_,
-          stdexec::let_value(static_cast<Item&&>(item), apply_fun<Fun>{&self.op_.fun_}));
+          self.op_->rcvr_,
+          stdexec::let_value(static_cast<Item&&>(item), apply_fun<Fun>{&self.op_->fun_}));
       }
 
       template <stdexec::__completion_tag Tag, class... Args>
       friend void tag_invoke(Tag complete, receiver&& self, Args&&... args) noexcept {
-        complete(static_cast<Receiver&&>(self.op_.rcvr_), static_cast<Args&&>(args)...);
+        complete(static_cast<Receiver&&>(self.op_->rcvr_), static_cast<Args&&>(args)...);
+      }
+
+      friend stdexec::env_of_t<Receiver> tag_invoke(stdexec::get_env_t, const receiver& self) noexcept {
+        return stdexec::get_env(self.op_->rcvr_);
       }
     };
 
@@ -47,7 +51,7 @@ namespace gsenders {
       template <stdexec::__decays_to<Sender> Sndr, stdexec::__decays_to<Receiver> Rcvr>
       operation(Sndr&& sndr, Rcvr&& rcvr, Fun fun)
         : operation_base<Receiver, Fun>(static_cast<Rcvr&&>(rcvr), static_cast<Fun&&>(fun))
-        , op_(stdexec::connect(sndr, receiver{*this})) {
+        , op_(stdexec::connect(static_cast<Sndr&&>(sndr), receiver<Receiver, Fun>{this})) {
       }
 
      private:
@@ -80,8 +84,8 @@ namespace gsenders {
       }
 
       template <stdexec::receiver Rcvr>
-        requires sequence_receiver_of<Rcvr, next_signatures_t<Sender, stdexec::env_of_t<Rcvr>, Fun>>
-              && sequence_sender_to<Sender, receiver<Rcvr, Fun>>
+        // requires sequence_receiver_of<Rcvr, next_signatures_t<Sender, stdexec::env_of_t<Rcvr>, Fun>>
+              // && sequence_sender_to<Sender, receiver<Rcvr, Fun>>
       friend operation<Sender, std::decay_t<Rcvr>, Fun>
         tag_invoke(stdexec::connect_t, sender&& self, Rcvr&& rcvr) {
         return {
@@ -100,14 +104,19 @@ namespace gsenders {
         -> next_signatures_t<Sender, Env, Fun>;
     };
 
-    struct let_value_each_fn {
-      template <stdexec::sender Sender, stdexec::movable Fun>
+    struct let_value_each_t {
+      template <stdexec::sender Sender, class Fun>
       auto operator()(Sender&& sndr, Fun fun) const {
         return sender<std::decay_t<Sender>, Fun>{
           static_cast<Sender&&>(sndr), static_cast<Fun&&>(fun)};
       }
+
+      template <class Fun>
+      constexpr auto operator()(Fun fun) const noexcept -> stdexec::__binder_back<let_value_each_t, Fun> {
+        return {{}, {}, {static_cast<Fun&&>(fun)}};
+      }
     };
   } // namespace let_value_each_
 
-  inline constexpr let_value_each_::let_value_each_fn let_value_each{};
+  inline constexpr let_value_each_::let_value_each_t let_value_each{};
 }

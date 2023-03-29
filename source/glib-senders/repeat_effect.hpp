@@ -29,7 +29,6 @@ namespace gsenders {
           }
 
           template <class Error>
-          // requires __callable<set_error_t, Receiver&&, Error>
           friend void tag_invoke(set_error_t, repeat_receiver&& self, Error e) noexcept {
             set_error(static_cast<Receiver&&>(self.op_->rcvr_), static_cast<Error&&>(e));
           }
@@ -38,7 +37,8 @@ namespace gsenders {
             set_value(static_cast<Receiver&&>(self.op_->rcvr_));
           }
 
-          friend env_of_t<Receiver> tag_invoke(get_env_t, const repeat_receiver& self) noexcept {
+          friend env_of_t<Receiver> tag_invoke(get_env_t, const repeat_receiver& self) noexcept(
+            __nothrow_callable<get_env_t, const Receiver&>) {
             return get_env(self.op_->rcvr_);
           }
         };
@@ -46,10 +46,10 @@ namespace gsenders {
         SourceSender source_;
         Receiver rcvr_;
         exec::trampoline_scheduler trampoline_;
-        // using on_t = decltype(exec::on(__declval<exec::trampoline_scheduler>(), __declval<NextSender&&>()));
-        // static_assert(sender_to<on_t, repeat_receiver>);
+        using next_on_scheduler_sender =
+          __call_result_t<on_t, exec::trampoline_scheduler, NextSender&&>;
 
-        std::optional<connect_result_t<NextSender, repeat_receiver>> next_op_;
+        std::optional<connect_result_t<next_on_scheduler_sender, repeat_receiver>> next_op_;
 
         void repeat() noexcept {
           auto token = get_stop_token(get_env(rcvr_));
@@ -59,7 +59,8 @@ namespace gsenders {
           }
           try {
             auto& next = next_op_.emplace(__conv{[&] {
-              return connect(set_next(rcvr_, SourceSender{source_}),
+              return connect(
+                stdexec::on(trampoline_, set_next(rcvr_, SourceSender{source_})),
                 repeat_receiver{this});
             }});
             start(next);

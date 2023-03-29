@@ -48,7 +48,7 @@ namespace gsenders {
         Sender sndr_;
 
         template <__decays_to<__t> Self, class Receiver>
-          requires sequence_sender_to<__copy_cvref_t<Self, Sender>, receiver_t<Receiver>>
+        // requires sequence_sender_to<__copy_cvref_t<Self, Sender>, receiver_t<Receiver>>
         friend auto tag_invoke(connect_t, Self&& self, Receiver&& rcvr_id) {
           return connect(
             __copy_cvref_t<Self, Sender>(self.sndr_),
@@ -61,6 +61,10 @@ namespace gsenders {
       template <class Sender>
       constexpr auto operator()(Sender&& sndr) const {
         return __t<sender<__id<decay_t<Sender>>>>{static_cast<Sender&&>(sndr)};
+      }
+
+      constexpr auto operator()() const noexcept -> __binder_back<sequence_join_t> {
+        return {};
       }
     };
   } // namespace sequence_join_
