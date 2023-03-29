@@ -1,6 +1,6 @@
 #pragma once
 
-#include "./stream_concepts.hpp"
+#include "./sequence_sender_concepts.hpp"
 
 #include <stdexec/execution.hpp>
 
