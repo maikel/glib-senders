@@ -56,11 +56,11 @@ namespace gsenders { namespace let_next_ {
   };
 
   template <class Fun, class Item>
-  using let_value_t =
-    decltype(stdexec::let_value(stdexec::__declval<Item>(), stdexec::__declval<apply_fun<Fun>>()));
+  using let_value_t = next_signatures<set_next_t(
+    decltype(stdexec::let_value(stdexec::__declval<Item>(), stdexec::__declval<apply_fun<Fun>>())))>;
 
   template <class Sender, class Env, class Fun>
-  using next_signatures_t = make_next_signatures<
+  using next_signatures_t = make_next_signatures_t<
     Sender,
     Env,
     next_signatures<>,

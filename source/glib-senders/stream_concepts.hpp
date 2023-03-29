@@ -102,15 +102,39 @@ namespace gsenders {
   };
 
   template <class Sender, class Env>
-  concept next_sender_in = stdexec::sender_in<Sender, Env> && has_next_signatures<Sender, Env>;
+  concept next_sender_in = stdexec::sender_in<Sender, Env> && with_next_signatures<Sender, Env>;
 
   template <class _Sender, class _Env>
-  using next_signatures_of_t = stdexec::__call_result_t<get_next_signatures_t, _Sender, _Env>;
+  using get_next_signatures_result_t =
+    stdexec::__call_result_t<get_next_signatures_t, _Sender, _Env>;
+
+  template <class _Sender, class _Env>
+    requires next_sender_in<_Sender, _Env>
+  using next_signatures_of_t = get_next_signatures_result_t<_Sender, _Env>;
 
   template <class Sender, class Receiver>
   concept next_sender_to =
     stdexec::sender_to<Sender, Receiver>                   //
     && next_sender_in<Sender, stdexec::env_of_t<Receiver>> //
     && next_receiver_of<Receiver, next_signatures_of_t<Sender, stdexec::env_of_t<Receiver>>>;
+
+  template <class Item>
+  Item next_item_of(set_next_t (*)(Item));
+
+  template <class Signature>
+  using next_item_of_t = decltype(next_item_of((Signature*) nullptr));
+
+  template <class Fn, class Sender, class Env>
+  using apply_to_sigs = stdexec::__mapply<
+    stdexec::__mcompose<
+      stdexec::__mconcat<>,
+      stdexec::__transform<stdexec::__mcompose<Fn, stdexec::__q<next_item_of_t>>>>,
+    next_signatures_of_t<Sender, Env>>;
+
+  template <class Sender, class Env, class NewSigs, class FnSigs>
+    requires next_sender_in<Sender, Env>
+  using make_next_signatures_t = stdexec::__mapply<
+    stdexec::__munique<stdexec::__q<next_signatures>>,
+    stdexec::__minvoke<stdexec::__mconcat<>, NewSigs, apply_to_sigs<FnSigs, Sender, Env>>>;
 
 } // namespace gsenders
