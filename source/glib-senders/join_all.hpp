@@ -42,21 +42,23 @@ namespace gsenders {
       using Sender = stdexec::__t<decay_t<SenderId>>;
 
       struct __t {
-        using completion_signatures = stdexec::
-          completion_signatures<set_value_t(), set_error_t(std::exception_ptr), set_stopped_t()>;
-
         Sender sndr_;
 
         template <__decays_to<__t> Self, class Receiver>
-        // requires receiver_of<receiver_t<Receiver>, completion_signatures_of_t<__copy_cvref_t<Self, Sender>, env_of_t<Receiver>>
-        friend __call_result_t<connect_t, __copy_cvref_t<Self, Sender>, receiver_t<Receiver>>
-        tag_invoke(connect_t, Self&& self, Receiver&& rcvr) {
-          using result_t = tag_invoke_result_t<connect_t, __copy_cvref_t<Self, Sender>, receiver_t<Receiver>>;
+          requires sequence_sender_to<__copy_cvref_t<Self, Sender>, receiver_t<Receiver>>
+        friend connect_result_t<__copy_cvref_t<Self, Sender>, receiver_t<Receiver>>
+          tag_invoke(connect_t, Self&& self, Receiver&& rcvr) {
+          using result_t =
+            tag_invoke_result_t<connect_t, __copy_cvref_t<Self, Sender>, receiver_t<Receiver>>;
           static_assert(operation_state<result_t>);
           return connect(
             __copy_cvref_t<Self, Sender>(self.sndr_),
             receiver_t<Receiver>{static_cast<Receiver&&>(rcvr)});
         }
+
+        template <__decays_to<__t> Self, class Env>
+        friend auto tag_invoke(get_completion_signatures_t, Self&& self, const Env& env)
+          -> completion_signatures_of_t<__copy_cvref_t<Self, Sender>, Env>;
       };
     };
 
