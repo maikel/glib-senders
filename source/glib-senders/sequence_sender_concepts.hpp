@@ -7,9 +7,6 @@ namespace gsenders {
     using namespace stdexec;
 
     struct set_next_t {
-      template <class _Fn, class... _Args>
-      using __f = __minvoke<_Fn, _Args...>;
-
       template <class Receiver, class Item>
         requires tag_invocable<set_next_t, Receiver&, Item>
       auto operator()(Receiver& rcvr, Item&& item) const noexcept
@@ -135,9 +132,13 @@ namespace gsenders {
 
   template <class Sender, class Env, class NewSigs, class FnSigs = stdexec::__q<detault_next_item>>
     requires sequence_sender_in<Sender, Env>
-  using make_sequence_items_t = stdexec::__mapply<
+  using __make_sequence_items_t = stdexec::__mapply<
     stdexec::__munique<stdexec::__q<sequence_items>>,
     stdexec::
       __minvoke<stdexec::__mconcat<>, NewSigs, apply_to_sigs<FnSigs, Sender, Env>>>;
+
+  template <class Sender, class Env, class NewSigs, template <class> class FnSigs>
+    requires sequence_sender_in<Sender, Env>
+  using make_sequence_items_t = __make_sequence_items_t<Sender, Env, NewSigs, stdexec::__q<FnSigs>>;
 
 } // namespace gsenders

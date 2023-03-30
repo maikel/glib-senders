@@ -39,7 +39,8 @@ namespace gsenders {
     };
 
     template <class Sender, class Env, class Int>
-    using sequence_items_t = make_sequence_items_t<Sender, Env, sequence_items<>, next_item_t<Int>>;
+    using sequence_items_t =
+      __make_sequence_items_t<Sender, Env, sequence_items<>, next_item_t<Int>>;
 
     template <std::integral Int, class ReceiverId>
     struct receiver {
@@ -89,9 +90,7 @@ namespace gsenders {
         template <class Sndr, class Rcvr>
         __t(Sndr&& sndr, Rcvr&& rcvr, Int initial_val)
           : operation_base<Int, Receiver>(static_cast<Rcvr&&>(rcvr), initial_val)
-          , op_(connect(
-              static_cast<Sndr&&>(sndr),
-              stdexec::__t<receiver<Int, ReceiverId>>{this})) {
+          , op_(connect(static_cast<Sndr&&>(sndr), stdexec::__t<receiver<Int, ReceiverId>>{this})) {
         }
 
         connect_result_t<Sender, stdexec::__t<receiver<Int, ReceiverId>>> op_;

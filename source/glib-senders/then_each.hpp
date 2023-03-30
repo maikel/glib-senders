@@ -32,7 +32,7 @@ namespace gsenders {
 
     template <class Sender, class Env, class Fun>
     using sequence_items_t =
-      make_sequence_items_t<Sender, Env, sequence_items<>, next_item_t<Fun>>;
+      __make_sequence_items_t<Sender, Env, sequence_items<>, next_item_t<Fun>>;
 
     template <class ReceiverId, class Fun>
     struct receiver {
