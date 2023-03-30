@@ -3,7 +3,7 @@
 #include "./sequence_sender_concepts.hpp"
 
 namespace gsenders {
-  namespace sequence_join_ {
+  namespace join_all_ {
     using namespace stdexec;
 
     template <class ReceiverId>
@@ -48,27 +48,30 @@ namespace gsenders {
         Sender sndr_;
 
         template <__decays_to<__t> Self, class Receiver>
-        // requires sequence_sender_to<__copy_cvref_t<Self, Sender>, receiver_t<Receiver>>
-        friend auto tag_invoke(connect_t, Self&& self, Receiver&& rcvr_id) {
+        // requires receiver_of<receiver_t<Receiver>, completion_signatures_of_t<__copy_cvref_t<Self, Sender>, env_of_t<Receiver>>
+        friend __call_result_t<connect_t, __copy_cvref_t<Self, Sender>, receiver_t<Receiver>>
+        tag_invoke(connect_t, Self&& self, Receiver&& rcvr) {
+          using result_t = tag_invoke_result_t<connect_t, __copy_cvref_t<Self, Sender>, receiver_t<Receiver>>;
+          static_assert(operation_state<result_t>);
           return connect(
             __copy_cvref_t<Self, Sender>(self.sndr_),
-            receiver_t<Receiver>{static_cast<Receiver&&>(rcvr_id)});
+            receiver_t<Receiver>{static_cast<Receiver&&>(rcvr)});
         }
       };
     };
 
-    struct sequence_join_t {
+    struct join_all_t {
       template <class Sender>
       constexpr auto operator()(Sender&& sndr) const {
         return __t<sender<__id<decay_t<Sender>>>>{static_cast<Sender&&>(sndr)};
       }
 
-      constexpr auto operator()() const noexcept -> __binder_back<sequence_join_t> {
+      constexpr auto operator()() const noexcept -> __binder_back<join_all_t> {
         return {};
       }
     };
-  } // namespace sequence_join_
+  } // namespace join_all_
 
-  using sequence_join_::sequence_join_t;
-  inline constexpr sequence_join_t sequence_join;
+  using join_all_::join_all_t;
+  inline constexpr join_all_t join_all;
 } // namespace gsenders

@@ -17,12 +17,12 @@ int main() {
     repeat_effect(stdexec::just()) //
     | enumerate()                  //
     | let_value_each([](int n) -> exec::variant_sender<just_stopped_t, just_t> {
-        std::cout << n << std::endl;
         if (n < 10) {
+          std::cout << n << std::endl;
           return stdexec::just();
         }
         return stdexec::just_stopped();
-      }) //
-    | sequence_join()
+      })         //
+    | join_all() //
     | stdexec::then([] { std::cout << "done.\n"; }));
 }
